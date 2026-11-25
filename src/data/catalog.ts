@@ -11,6 +11,8 @@ import bgWinterSolsticeImg from '../assets/images/track_winter_solstice_17956186
 import bgCarolBellsImg from '../assets/images/track_carol_bells_1795618654761.jpg';
 import bgMoonRaidersImg from '../assets/images/track_moon_raiders_1795618654910.jpg';
 import bgTokyoDiscoImg from '../assets/images/track_tokyo_disco_1795618655588.jpg';
+import bgFireflyImg from '../assets/images/bg_cosmic_rave_1795492887898.jpg';
+import bgOtherPotPieImg from '../assets/images/bg_play_aliens_1795492887670.jpg';
 
 import {
   ChassisTheme,
@@ -234,7 +236,7 @@ function chartInfo(id: string, fallbackDur: number, fallbackBpm: number) {
 }
 
 /**
- * 13 Real Bundled MP3 Tracks (100% synced durations, BPMs & sections from real waveform analysis)
+ * 15 Real Bundled MP3 Tracks (100% synced durations, BPMs & sections from real waveform analysis)
  */
 export const SONG_CATALOG: SongDefinition[] = [
   {
@@ -470,6 +472,42 @@ export const SONG_CATALOG: SongDefinition[] = [
     chillOnly: false,
     stars: { CHILL: '1.8★', NORMAL: '3.4★', HARD: '5.1★', INSANE: '6.7★', DEMON: '8.3★' },
     desc: 'Iconic cascading Christmas bell ostinatos locked to crisp triplets and Meteor Slashes.',
+  },
+  {
+    id: 'firefly',
+    num: '13',
+    newgroundsId: '1529754',
+    artist: 'Orbit Featured',
+    title: 'Firefly',
+    genre: 'Neon Electro House',
+    category: 'electronic',
+    ...chartInfo('firefly', 233.69, 130),
+    keySig: 'A MIN',
+    scaleNotes: [69, 71, 72, 74, 76, 77, 79, 81],
+    audioUrl: './assets/aistudio/1529754_Firefly.mp3',
+    bgImageUrl: bgFireflyImg,
+    orbCost: 0,
+    chillOnly: false,
+    stars: { CHILL: '1.6★', NORMAL: '3.1★', HARD: '4.6★', INSANE: '6.1★', DEMON: '7.6★' },
+    desc: 'Shimmery 130 BPM electro-house build-ups gliding into a glowing mid-track break and double chorus.',
+  },
+  {
+    id: 'the_other_pot_pie',
+    num: '14',
+    newgroundsId: '46989',
+    artist: 'RyeGuyHead',
+    title: 'The Other Pot Pie',
+    genre: 'Retro Arcade Breakbeat',
+    category: 'arcade',
+    ...chartInfo('the_other_pot_pie', 211.25, 125),
+    keySig: 'E MIN',
+    scaleNotes: [64, 66, 67, 69, 71, 72, 74, 76],
+    audioUrl: './assets/aistudio/46989_newgrounds_the_ot.mp3',
+    bgImageUrl: bgOtherPotPieImg,
+    orbCost: 0,
+    chillOnly: false,
+    stars: { CHILL: '1.5★', NORMAL: '2.9★', HARD: '4.4★', INSANE: '5.9★', DEMON: '7.4★' },
+    desc: 'Classic 125 BPM Newgrounds arcade breakbeat mixing groovy breakdowns with snappy double-clicks and Hold Arcs.',
   },
 ];
 
@@ -903,10 +941,10 @@ export const BADGE_CATALOG: TrophyBadge[] = [
   {
     id: 'badge_all_13',
     title: 'Grand Tokyo Tour',
-    jpTitle: '全13曲完全制覇',
-    desc: 'Record a cleared finish on all 13 bundled MP3 tracks.',
+    jpTitle: '全15曲完全制覇',
+    desc: 'Record a cleared finish on all 15 bundled MP3 tracks.',
     tier: 'prism',
-    orbReward: 120,
+    orbReward: 150,
   },
 ];
 

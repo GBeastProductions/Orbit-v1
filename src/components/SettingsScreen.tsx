@@ -301,7 +301,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   Studio Audio &amp; Sync Calibration
                 </h2>
                 <p className="mt-1 text-xs text-[#a1abbe]">
-                  All 13 MP3 tracks play at studio 1.0x pitch across every difficulty tier. Fine-tune output and Bluetooth/hardware latency here.
+                  All 15 MP3 tracks play at studio 1.0x pitch across every difficulty tier. Fine-tune output and Bluetooth/hardware latency here.
                 </p>
               </div>
 

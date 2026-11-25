@@ -29,6 +29,8 @@ export const INITIAL_PROFILE: PlayerProfile = {
     'cosmic_colors',
     'little_two',
     'speechless',
+    'firefly',
+    'the_other_pot_pie',
   ],
   unlockedBadges: [],
   mechanicStats: {},

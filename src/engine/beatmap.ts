@@ -413,6 +413,120 @@ function snapToMusicalSubdivision(t: number, phase: number, beatDur: number): nu
   return Number(t.toFixed(3));
 }
 
+interface RestWindow {
+  startSec: number;
+  endSec: number;
+}
+
+/**
+ * Splits long songs (105s+) with 1–2 genuine musical breaks (6–20s) synced to breakdowns
+ * or mid-track energy valleys so players get natural breathers & clean resync cues.
+ */
+function buildMusicalRestWindows(song: SongDefinition, curve: number[]): RestWindow[] {
+  const dur = song.durationSec;
+  if (song.id === 'moments_passing' || dur < 108) return [];
+
+  const desiredCount = dur >= 175 ? 2 : 1;
+  const targetCenters =
+    desiredCount === 2 ? [dur * 0.41, dur * 0.72] : [dur * 0.54];
+  const restLen = dur >= 220 ? 15.5 : dur >= 175 ? 11.5 : 8.5;
+
+  const breaks: RestWindow[] = [];
+  for (const center of targetCenters) {
+    // Look near center (±18s) for lowest 5s energy valley or BREAKDOWN section
+    const breakdownCue = song.sections.find(
+      (s) => s.label === 'BREAKDOWN' && Math.abs(s.startPct * dur - center) < 26,
+    );
+    let bestStart = center - restLen * 0.45;
+    if (breakdownCue) {
+      bestStart = breakdownCue.startPct * dur + 1.2;
+    } else if (curve.length > 8) {
+      let minE = Infinity;
+      const minIdx = Math.max(4, Math.floor((center - 18) / 5));
+      const maxIdx = Math.min(curve.length - 5, Math.ceil((center + 18) / 5));
+      for (let bi = minIdx; bi <= maxIdx; bi++) {
+        if (curve[bi] < minE) {
+          minE = curve[bi];
+          bestStart = bi * 5;
+        }
+      }
+    }
+    const clampedStart = Math.max(24, Math.min(dur - restLen - 16, bestStart));
+    breaks.push({
+      startSec: Number(clampedStart.toFixed(2)),
+      endSec: Number((clampedStart + restLen).toFixed(2)),
+    });
+  }
+  return breaks;
+}
+
+function computeDynamicNoteDynamics(
+  diffId: DifficultyId,
+  section: SongSection,
+  energy: number,
+  index: number,
+  modeId: WaveModeId,
+): { sizeScale: number; speedScale: number } {
+  const phraseWave = Math.sin(index * 0.72);
+
+  if (diffId === 'CHILL') {
+    // Chill keeps generously wide sectors and smooth predictable cadence
+    const sizeScale = section === 'DROP' ? 1.18 : 1.26;
+    const speedScale = section === 'DROP' ? 1.04 : 0.94;
+    return { sizeScale, speedScale };
+  }
+
+  if (diffId === 'NORMAL') {
+    const sizeScale =
+      section === 'DROP'
+        ? 1.06 + phraseWave * 0.1
+        : section === 'BREAKDOWN'
+        ? 0.94
+        : 1.0 + phraseWave * 0.08;
+    const speedScale = section === 'DROP' ? 1.08 : section === 'BREAKDOWN' ? 0.9 : 1.0;
+    return {
+      sizeScale: Number(Math.max(0.84, Math.min(1.22, sizeScale)).toFixed(2)),
+      speedScale: Number(Math.max(0.86, Math.min(1.14, speedScale)).toFixed(2)),
+    };
+  }
+
+  // HARD / INSANE / DEMON: deliberate speed-size musical interplay
+  // Calm breakdowns/verses = slower dial speed + tighter precision target;
+  // Drops/chorus bursts = brisk kinetic dial speed + wider satisfying catch window.
+  let sizeScale = 1.0;
+  let speedScale = 1.0;
+
+  if (section === 'BREAKDOWN' || section === 'INTRO' || energy < 0.48) {
+    sizeScale = 0.78 + (phraseWave > 0 ? 0.08 : -0.06);
+    speedScale = 0.8 + (phraseWave > 0 ? 0.05 : -0.04);
+  } else if (section === 'DROP' || energy >= 0.76) {
+    if (phraseWave >= -0.15) {
+      // Fast speed + Big catch targets on main chorus surges
+      sizeScale = 1.16 + Math.min(0.18, (energy - 0.65) * 0.45);
+      speedScale = 1.16 + Math.min(0.14, (energy - 0.65) * 0.35);
+    } else {
+      // Contrasting bar accent: brief slow-precision tuck
+      sizeScale = 0.82;
+      speedScale = 0.88;
+    }
+  } else {
+    sizeScale = 0.96 + phraseWave * 0.18;
+    speedScale = 0.98 + phraseWave * 0.14;
+  }
+
+  if (modeId === 'DOUBLE_TAP' || modeId === 'BEAT_BURST') {
+    sizeScale = Math.max(sizeScale, 1.14);
+    speedScale = Math.min(speedScale, 1.04);
+  } else if (modeId === 'SNIPER_MICRO') {
+    speedScale = Math.min(speedScale, 0.88);
+  }
+
+  return {
+    sizeScale: Number(Math.max(0.68, Math.min(1.36, sizeScale)).toFixed(2)),
+    speedScale: Number(Math.max(0.75, Math.min(1.30, speedScale)).toFixed(2)),
+  };
+}
+
 /**
  * Generates an audio-locked BeatmapNote[] where EVERY note hits on a real MP3 transient
  * or quantized musical subdivision inside that specific track.
@@ -528,8 +642,9 @@ export function buildSongBeatmap(
     }
 
     const anchors = Array.from(anchorMap.values()).sort((a, b) => a.t - b.t);
+    const restWindows = buildMusicalRestWindows(song, blueprint.energyCurve);
 
-    // Step B: Curate anchors strictly adhering to musical BPM spacing & Tutorial opening breathers
+    // Step B: Curate anchors strictly adhering to musical BPM spacing, rest breaks & Tutorial opening breathers
     const selected: { t: number; e: number }[] = [];
     let lastSelectedT = -10;
     const isTutorial = song.id === 'moments_passing' && effectiveDiff === 'CHILL';
@@ -537,6 +652,8 @@ export function buildSongBeatmap(
     for (let i = 0; i < anchors.length; i++) {
       const a = anchors[i];
       if (a.t < (isTutorial ? 1.65 : 1.15) || a.t > dur - 1.35) continue;
+      if (restWindows.some((rw) => a.t >= rw.startSec && a.t <= rw.endSec)) continue;
+
       const bIdx = Math.min(blueprint.energyCurve.length - 1, Math.floor(a.t / 5));
       const energy = blueprint.energyCurve[bIdx] ?? 0.6;
       const prog = a.t / Math.max(1, dur);
@@ -565,7 +682,7 @@ export function buildSongBeatmap(
       lastSelectedT = a.t;
     }
 
-    // Step C: Build final BeatmapNotes with musical choreography & clean post-hold recovery
+    // Step C: Build final BeatmapNotes with dynamic size/speed contrast & clean post-hold recovery
     const notes: BeatmapNote[] = [];
     let prevSection: SongSection = 'INTRO';
 
@@ -589,6 +706,13 @@ export function buildSongBeatmap(
         blueprint.burstBias,
         blueprint.flipBias,
       );
+      const dynamics = computeDynamicNoteDynamics(
+        effectiveDiff,
+        section,
+        cur.e,
+        i,
+        picked.modeId,
+      );
 
       notes.push({
         index: i,
@@ -597,6 +721,8 @@ export function buildSongBeatmap(
         modeId: picked.modeId,
         section,
         energy: cur.e,
+        sizeScale: dynamics.sizeScale,
+        speedScale: dynamics.speedScale,
         holdDurationSec: picked.holdDurationSec ? Number(picked.holdDurationSec) : undefined,
         burstCount: picked.burstCount,
       });
@@ -694,6 +820,8 @@ export function evaluateEarnedBadges(
     'final_battle',
     'winter_solstice',
     'carol_of_the_bells',
+    'firefly',
+    'the_other_pot_pie',
   ];
   if (officialIds.every((id) => nextSongRecords[id] && nextSongRecords[id].bestRank !== 'F')) {
     grant('badge_all_13');

@@ -76,6 +76,7 @@ interface RuntimeEngine {
   waveModeId: WaveModeId;
   waveIndex: number;
   waitingForCue: boolean;
+  breakRemainingSec: number;
   targets: TargetSector[];
   hazards: { angle: number; halfWidth: number }[];
   portal: {
@@ -191,6 +192,7 @@ export default function App() {
   const phaseBeforeOverlayRef = useRef<GamePhase>('IDLE');
   const lastInputTimestampRef = useRef(0);
   const lastTutorialStripeRef = useRef(false);
+  const hasUnlockedAudioRef = useRef(false);
 
   const engineRef = useRef<RuntimeEngine>({
     phase: 'IDLE',
@@ -207,6 +209,7 @@ export default function App() {
     waveModeId: 'CW_GREEN',
     waveIndex: 0,
     waitingForCue: false,
+    breakRemainingSec: 0,
     targets: [],
     hazards: [],
     portal: null,
@@ -287,6 +290,8 @@ export default function App() {
     lessonSlowActive: false,
     activeLesson: null,
     flashlightActive: false,
+    waitingForCue: false,
+    breakRemainingSec: 0,
   });
 
   useEffect(() => {
@@ -622,9 +627,10 @@ export default function App() {
         const candidate = eng.beatmap[eng.beatmapIndex];
         const dtToHit = candidate.hitTime - eng.songTime;
 
-        // Long quiet break/gap in music: cruise smoothly until ~1.35s before the next musical transient
+        // Long quiet break/gap in music: cruise smoothly until ~1.45s before the next musical transient
         if (dtToHit > 1.85) {
           eng.waitingForCue = true;
+          eng.breakRemainingSec = dtToHit;
           eng.targets = [];
           eng.hazards = [];
           eng.portal = null;
@@ -634,12 +640,14 @@ export default function App() {
         }
 
         eng.waitingForCue = false;
+        eng.breakRemainingSec = 0;
         note = candidate;
         eng.beatmapIndex += 1;
         eng.songSection = note.section;
         setUiSection(note.section);
       } else {
         eng.waitingForCue = false;
+        eng.breakRemainingSec = 0;
       }
 
       const modeId: WaveModeId = overrideMode || (note ? note.modeId : 'CW_GREEN');
@@ -653,7 +661,10 @@ export default function App() {
       else if (modeId === 'CW_GREEN') eng.direction = 1;
       else if (mirrorMod && isFirstNote) eng.direction = -1;
 
-      const nominalSpeed = computeNominalSpeed(diffId, p.equippedMods, song.bpm, modeId);
+      const noteSizeScale = note?.sizeScale ?? 1.0;
+      const noteSpeedScale = note?.speedScale ?? 1.0;
+      const nominalSpeed =
+        computeNominalSpeed(diffId, p.equippedMods, song.bpm, modeId) * noteSpeedScale;
 
       // Compute Audio-Locked Omega & Target Angle so needle crosses target center AT exact note.hitTime!
       const rawDt = note && !eng.sandboxModeId ? note.hitTime - eng.songTime : 0;
@@ -673,7 +684,10 @@ export default function App() {
       eng.angularSpeed = eng.baseAngularSpeed;
 
       const tutWidthBonus = eng.isTutorialRun ? 1.28 : 1.0;
-      const baseHW = Math.min(0.72, getBaseHalfWidth(diffId, p.equippedMods) * tutWidthBonus);
+      const baseHW = Math.max(
+        0.11,
+        Math.min(0.76, getBaseHalfWidth(diffId, p.equippedMods) * tutWidthBonus * noteSizeScale),
+      );
       const primaryAngle = wrapAngle(eng.spinnerAngle + eng.direction * travelAngle);
 
       const noteHitT = note && !eng.sandboxModeId ? note.hitTime : undefined;
@@ -839,17 +853,19 @@ export default function App() {
           },
         ];
       } else {
-        const hw =
-          modeId === 'SNIPER_MICRO'
-            ? Math.max(0.12, baseHW * 0.64)
-            : modeId === 'DECAY_ARC'
-            ? baseHW * 1.18
-            : baseHW;
         const tapsNeeded =
           modeId === 'DOUBLE_TAP' ? 2 : modeId === 'BEAT_BURST' ? note?.burstCount || 3 : 1;
+        const hw =
+          modeId === 'SNIPER_MICRO'
+            ? Math.max(0.11, baseHW * 0.68)
+            : modeId === 'DECAY_ARC'
+            ? Math.min(0.76, baseHW * 1.18)
+            : modeId === 'DOUBLE_TAP' || modeId === 'BEAT_BURST'
+            ? Math.min(0.78, Math.max(baseHW * 1.24, 0.36))
+            : baseHW;
         const tapExpire =
           noteHitT !== undefined
-            ? noteHitT + (tapsNeeded > 1 ? Math.max(standardGrace + 0.34, multiGrace * 0.85) : standardGrace)
+            ? noteHitT + (tapsNeeded > 1 ? Math.max(standardGrace + 0.58, multiGrace + 0.25) : standardGrace)
             : undefined;
         eng.targets = [
           {
@@ -897,6 +913,7 @@ export default function App() {
       eng.direction = p.equippedMods.includes('MR') ? -1 : 1;
       eng.waveIndex = 0;
       eng.waitingForCue = false;
+      eng.breakRemainingSec = 0;
       eng.waveElapsed = 0;
       eng.songTime = 0;
       eng.songSection = 'INTRO';
@@ -977,14 +994,56 @@ export default function App() {
     [getActiveSong, getEffectiveDifficulty, spawnNextWave],
   );
 
+  const syncTitleMusic = useCallback(
+    (songOverride?: SongDefinition) => {
+      const p = profileRef.current;
+      if (screenRef.current !== 'TITLE') return;
+      if (!p.musicEnabled) {
+        audioEngine.stop();
+        return;
+      }
+      if (!hasUnlockedAudioRef.current) return;
+      const song = songOverride || getActiveSong(p);
+      if (audioEngine.isPlaying() && audioEngine.getActiveSongId() === song.id) {
+        audioEngine.updateVolumes(p.musicEnabled, p.musicVolume, p.soundEnabled, p.sfxVolume);
+        return;
+      }
+      const startSec = Math.min(
+        Math.max(0, song.durationSec * 0.16),
+        Math.max(0, song.durationSec - 20),
+      );
+      audioEngine.startAtOffset(
+        song,
+        startSec,
+        true,
+        p.musicVolume,
+        p.soundEnabled,
+        p.sfxVolume,
+        true,
+        0.58,
+      );
+    },
+    [getActiveSong],
+  );
+
+  useEffect(() => {
+    if (screen === 'TITLE') {
+      syncTitleMusic();
+    }
+  }, [screen, profile.selectedSongId, profile.musicEnabled, syncTitleMusic]);
+
   useEffect(() => {
     resetRound(false, null);
 
     const handleFirstUnlock = () => {
+      hasUnlockedAudioRef.current = true;
       const p = profileRef.current;
       const active = getActiveSong(p);
       audioEngine.unlock();
       audioEngine.updateVolumes(p.musicEnabled, p.musicVolume, p.soundEnabled, p.sfxVolume);
+      if (screenRef.current === 'TITLE' && p.musicEnabled && !audioEngine.isPlaying()) {
+        syncTitleMusic(active);
+      }
       audioEngine.loadSongBuffer(active).then((buf) => {
         if (buf && Math.abs(buf.duration - active.durationSec) > 1.5) {
           setSongs((prev) =>
@@ -1004,9 +1063,19 @@ export default function App() {
 
   useEffect(() => {
     const onBeforeUnload = () => flushRunProfileDeltas();
+    const onWindowBlur = () => {
+      audioEngine.stopHoldShimmer();
+      if (screenRef.current === 'PLAYING' && engineRef.current.phase === 'PLAYING') {
+        for (const t of engineRef.current.targets) {
+          if (t.isHold && t.isHolding) t.isHolding = false;
+        }
+      }
+    };
     window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('blur', onWindowBlur);
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('blur', onWindowBlur);
       warpTimersRef.current.forEach((id) => window.clearTimeout(id));
       warpTimersRef.current = [];
     };
@@ -1368,9 +1437,21 @@ export default function App() {
       return;
     }
 
-    const rxBoost = p.equippedMods.includes('RX') ? 0.31 : 0.25;
+    const isMultiTap = hitTarget.tapsLeft > 1 || hitTarget.lastTapAtMs !== undefined;
+    const rapidFollowUp =
+      hitTarget.lastTapAtMs !== undefined && nowMs - hitTarget.lastTapAtMs <= 460;
+    const perfectRatioLimit = p.equippedMods.includes('RX')
+      ? isMultiTap
+        ? 0.56
+        : 0.34
+      : isMultiTap
+      ? rapidFollowUp
+        ? 0.64
+        : 0.46
+      : 0.27;
     const ratio = bestAbsDelta / Math.max(0.01, hitTarget.halfWidth);
-    const tier: JudgmentTier = ratio <= rxBoost ? 'PERFECT' : ratio <= 0.64 ? 'GREAT' : 'GOOD';
+    const tier: JudgmentTier =
+      ratio <= perfectRatioLimit ? 'PERFECT' : ratio <= 0.72 ? 'GREAT' : 'GOOD';
     const fxColor = tier === 'PERFECT' ? '#ffffff' : tier === 'GREAT' ? '#34d399' : '#22d3ee';
     const signedErr = signedAngleDiff(eng.spinnerAngle, hitTarget.angle) * eng.direction;
     const offsetSigned = Math.max(
@@ -1380,22 +1461,21 @@ export default function App() {
     eng.hitErrorTicks.push({ offsetSigned, color: fxColor, age: 0 });
     if (eng.hitErrorTicks.length > 16) eng.hitErrorTicks.shift();
 
-    const song = getActiveSong(p);
+    const offsetDeg = bestAbsDelta * (180 / Math.PI);
     if (hitTarget.tapsLeft > 1) {
       hitTarget.tapsLeft -= 1;
-      hitTarget.halfWidth *= 0.88;
-      audioEngine.playHit(p.soundEnabled, p.hitSfxMode, eng.streak, tier === 'PERFECT', song.scaleNotes);
-      eng.hitEffects.push({
-        timer: 0.34,
-        duration: 0.34,
-        angle: eng.spinnerAngle,
-        isPerfect: tier === 'PERFECT',
-        label: hitTarget.tapsLeft === 1 ? 'LAST TAP!' : `TAP ×${hitTarget.tapsLeft}`,
-        color: '#22d3ee',
-      });
+      hitTarget.lastTapAtMs = nowMs;
+      awardHitSuccess(
+        tier,
+        offsetSigned,
+        offsetDeg,
+        hitTarget.tapsLeft === 1
+          ? `${tier} · TAP ×1`
+          : `${tier} · ×${hitTarget.tapsLeft} LEFT`,
+      );
       eng.hubStatusText = `×${hitTarget.tapsLeft} LEFT`;
-      eng.hubStatusColor = '#22d3ee';
-      eng.hubStatusTimer = 0.35;
+      eng.hubStatusColor = tier === 'PERFECT' ? '#fde047' : '#22d3ee';
+      eng.hubStatusTimer = 0.36;
       return;
     }
 
@@ -1408,8 +1488,13 @@ export default function App() {
       eng.angularSpeed = eng.baseAngularSpeed * 1.15;
     }
 
-    const offsetDeg = bestAbsDelta * (180 / Math.PI);
-    awardHitSuccess(tier, offsetSigned, offsetDeg);
+    const finalLabel =
+      hitTarget.lastTapAtMs !== undefined
+        ? tier === 'PERFECT'
+          ? `DOUBLE ${tier}! (+1 Orb)`
+          : `BURST ${tier}`
+        : undefined;
+    awardHitSuccess(tier, offsetSigned, offsetDeg, finalLabel);
 
     if (eng.targets.length > 0) return;
 
@@ -1530,7 +1615,7 @@ export default function App() {
         const offsetSec = p.audioOffsetMs / 1000;
         if (audioClock !== null && !eng.sandboxModeId) {
           eng.songTime = Math.max(0, audioClock + offsetSec);
-        } else {
+        } else if (eng.sandboxModeId || !p.musicEnabled || !audioEngine.isLoading()) {
           eng.songTime += dt;
         }
 
@@ -1547,13 +1632,23 @@ export default function App() {
         if (!eng.sandboxModeId && eng.songTime >= song.durationSec) {
           finalizeRunSummary(true);
         } else {
-          // If cruising cleanly through an intro or song breakdown gap, cue the next target on schedule!
+          // If cruising cleanly through an intro or song breakdown gap, heal Integrity softly and cue next note!
           if (eng.waitingForCue && !eng.sandboxModeId) {
             const upcoming = eng.beatmap[eng.beatmapIndex];
             if (!upcoming) {
+              eng.breakRemainingSec = 0;
               finalizeRunSummary(true);
-            } else if (upcoming.hitTime - eng.songTime <= 1.35) {
-              spawnNextWave(false, null);
+            } else {
+              const rem = Math.max(0, upcoming.hitTime - eng.songTime);
+              eng.breakRemainingSec = rem;
+              if (rem > 2.0 && eng.hp < 100) {
+                eng.hp = Math.min(100, eng.hp + dt * 2.2);
+                setUiHp(eng.hp);
+              }
+              if (rem <= 1.45) {
+                eng.breakRemainingSec = 0;
+                spawnNextWave(false, null);
+              }
             }
           }
 
@@ -1650,8 +1745,16 @@ export default function App() {
             }
           }
 
+          // Gently cushion sweep speed while actively hovering over a multi-tap sector so Double Perfects land cleanly
+          const multiHover = eng.targets.some(
+            (t) =>
+              (t.tapsLeft > 1 || t.lastTapAtMs !== undefined) &&
+              Math.abs(signedAngleDiff(eng.spinnerAngle, t.angle)) <= t.halfWidth + NEEDLE_TOLERANCE,
+          );
+          const sweepRate = multiHover ? 0.32 : 1.0;
+
           eng.spinnerAngle = wrapAngle(
-            eng.spinnerAngle + eng.direction * eng.angularSpeed * simDt,
+            eng.spinnerAngle + eng.direction * eng.angularSpeed * sweepRate * simDt,
           );
 
           if (eng.portal) {
@@ -1739,6 +1842,8 @@ export default function App() {
       cs.lessonSlowActive = eng.lessonSlowActive;
       cs.activeLesson = eng.activeLesson;
       cs.flashlightActive = p.equippedMods.includes('FL');
+      cs.waitingForCue = eng.waitingForCue;
+      cs.breakRemainingSec = eng.breakRemainingSec;
 
       rafId = requestAnimationFrame(tick);
     };
@@ -1894,7 +1999,6 @@ export default function App() {
         ) {
           exitSubScreen();
         } else if (screenRef.current === 'SONG_SELECT') {
-          audioEngine.stop();
           setScreen('TITLE');
         }
         return;
@@ -1994,6 +2098,7 @@ export default function App() {
   }, [flushRunProfileDeltas, getActiveSong, previewSong]);
 
   const handlePlayPrimary = useCallback(() => {
+    hasUnlockedAudioRef.current = true;
     audioEngine.unlock();
     const p = profileRef.current;
     if (!p.tutorialSongCompleted) {
@@ -2174,6 +2279,7 @@ export default function App() {
         <TitleScreen
           profile={profile}
           activeSong={activeSong}
+          songsCount={songs.length}
           onPlayPrimary={handlePlayPrimary}
           onEnterSongSelect={enterSongSelect}
           onOpenOrbVault={() => {
@@ -2189,9 +2295,12 @@ export default function App() {
             setScreen('INDEX');
           }}
           onToggleMusic={() => {
+            hasUnlockedAudioRef.current = true;
+            audioEngine.unlock();
             const next = !profile.musicEnabled;
             updateProfile({ musicEnabled: next });
             audioEngine.updateVolumes(next, profile.musicVolume, profile.soundEnabled, profile.sfxVolume);
+            if (!next) audioEngine.stop();
           }}
           onHoverTick={() => audioEngine.playUiTick(profile.soundEnabled)}
         />
@@ -2214,6 +2323,8 @@ export default function App() {
           }}
           onUpdateAudioOffset={(ms) => updateProfile({ audioOffsetMs: ms })}
           onToggleMusic={() => {
+            hasUnlockedAudioRef.current = true;
+            audioEngine.unlock();
             const next = !profile.musicEnabled;
             updateProfile({ musicEnabled: next });
             audioEngine.updateVolumes(next, profile.musicVolume, profile.soundEnabled, profile.sfxVolume);
@@ -2310,7 +2421,6 @@ export default function App() {
           songs={songs}
           customAudioStatus={customAudioStatus}
           onBackToTitle={() => {
-            audioEngine.stop();
             setScreen('TITLE');
           }}
           onPreviewSong={(id) => previewSong(id, true)}
@@ -2433,7 +2543,6 @@ export default function App() {
         onGoToSongSelect={enterSongSelect}
         onGoToTitle={() => {
           setPauseOpen(false);
-          audioEngine.stop();
           setScreen('TITLE');
         }}
         onOpenOrbVault={openShopScreen}

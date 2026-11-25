@@ -49,6 +49,8 @@ export interface CanvasRenderState {
   lessonSlowActive: boolean;
   activeLesson: TutorialLesson | null;
   flashlightActive: boolean;
+  waitingForCue: boolean;
+  breakRemainingSec: number;
 }
 
 interface OrbitStageProps {
@@ -340,7 +342,8 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
       }
 
       const modeMeta = WAVE_MODES.find((m) => m.id === st.waveModeId) || WAVE_MODES[0];
-      const baseColor = st.waveModeId === 'CW_GREEN' ? theme.primary : modeMeta.color;
+      // Target colors stay strictly fixed to canonical gameplay colors regardless of cabinet theme
+      const baseColor = modeMeta.color;
       const isFailed = st.phase === 'SUMMARY' && st.missReasonText;
 
       // Portals
@@ -546,9 +549,31 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
         ctx.beginPath();
         ctx.moveTo(cx + Math.cos(t.angle) * (innerRadius + 2), cy + Math.sin(t.angle) * (innerRadius + 2));
         ctx.lineTo(cx + Math.cos(t.angle) * (outerRadius - 2), cy + Math.sin(t.angle) * (outerRadius - 2));
-        ctx.strokeStyle = activeThis ? theme.bright : '#ffffff';
+        ctx.strokeStyle = activeThis ? '#fde047' : '#ffffff';
         ctx.lineWidth = 2;
         ctx.stroke();
+
+        // Directional Arrowhead Tip indicating CW vs CCW sweep polarity
+        if (st.phase === 'PLAYING' && (i === 0 || st.waveModeId !== 'ORDERED_SEQ')) {
+          const tipAngle = t.angle + st.direction * (t.halfWidth + 0.055);
+          const arrowR = trackRadius;
+          const tanAngle = tipAngle + st.direction * (Math.PI / 2);
+          const ax = cx + Math.cos(tipAngle) * arrowR;
+          const ay = cy + Math.sin(tipAngle) * arrowR;
+          ctx.beginPath();
+          ctx.moveTo(ax + Math.cos(tanAngle) * 5.5, ay + Math.sin(tanAngle) * 5.5);
+          ctx.lineTo(
+            ax - Math.cos(tanAngle) * 3.5 + Math.cos(tipAngle) * 4.5,
+            ay - Math.sin(tanAngle) * 3.5 + Math.sin(tipAngle) * 4.5,
+          );
+          ctx.lineTo(
+            ax - Math.cos(tanAngle) * 3.5 - Math.cos(tipAngle) * 4.5,
+            ay - Math.sin(tanAngle) * 3.5 - Math.sin(tipAngle) * 4.5,
+          );
+          ctx.closePath();
+          ctx.fillStyle = st.direction === 1 ? '#34d399' : '#f87171';
+          ctx.fill();
+        }
 
         if (t.tapsLeft > 1 || t.seqNum > 0 || t.isMeteorEcho) {
           ctx.fillStyle = '#07080d';
@@ -662,15 +687,40 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
         ctx.font = '700 10px "JetBrains Mono", monospace';
         ctx.fillText(`${st.missDegrees}°`, cx, cy + 8);
       } else if (st.phase === 'PLAYING') {
-        if (st.hubStatusTimer > 0) {
-          ctx.fillStyle = st.hubStatusColor || theme.bright;
+        if (st.waitingForCue && st.breakRemainingSec > 1.35) {
+          const isSoon = st.breakRemainingSec <= 2.4;
+          const arcFrac = Math.max(0.05, Math.min(1, st.breakRemainingSec / 14));
+          ctx.beginPath();
+          ctx.arc(
+            cx,
+            cy,
+            hubRadius - 4,
+            -Math.PI / 2,
+            -Math.PI / 2 + TAU * arcFrac,
+          );
+          ctx.strokeStyle = isSoon ? '#fde047' : '#38bdf8';
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+
+          ctx.fillStyle = isSoon ? '#fde047' : '#38bdf8';
+          ctx.font = '800 10px "JetBrains Mono", monospace';
+          ctx.fillText(isSoon ? 'GET READY' : 'BREAK', cx, cy - 9);
+          ctx.fillStyle = '#f3f4f6';
+          ctx.font = '900 16px "JetBrains Mono", monospace';
+          ctx.fillText(`${st.breakRemainingSec.toFixed(1)}s`, cx, cy + 9);
+        } else if (st.hubStatusTimer > 0) {
+          ctx.fillStyle = st.hubStatusColor || '#34d399';
           ctx.font = '900 11px "JetBrains Mono", monospace';
           ctx.fillText(st.hubStatusText, cx, cy - 10);
           ctx.fillStyle = streakTier >= 2 ? '#fbbf24' : '#f3f4f6';
           ctx.font = '900 18px "JetBrains Mono", monospace';
           ctx.fillText(`${st.streak}x`, cx, cy + 8);
         } else {
-          ctx.fillStyle = st.activeLesson ? '#fde047' : isIlluminated ? theme.bright : '#a1abbe';
+          ctx.fillStyle = st.activeLesson
+            ? '#fde047'
+            : st.direction === 1
+            ? '#34d399'
+            : '#f87171';
           ctx.font = '800 10px "JetBrains Mono", monospace';
           const dirLabel = st.activeLesson ? 'GUIDE ACTIVE' : st.direction === 1 ? 'CW ↻' : 'CCW ↺';
           ctx.fillText(dirLabel, cx, cy - 10);

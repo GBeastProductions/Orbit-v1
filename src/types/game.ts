@@ -165,6 +165,8 @@ export interface BeatmapNote {
   modeId: WaveModeId;
   section: SongSection;
   energy: number;
+  sizeScale?: number;
+  speedScale?: number;
   holdDurationSec?: number;
   burstCount?: number;
 }
@@ -176,6 +178,7 @@ export interface TargetSector {
   halfWidth: number;
   initialHalfWidth: number;
   tapsLeft: number;
+  lastTapAtMs?: number;
   seqNum: number;
   alpha: number;
   enteredWindow: boolean;

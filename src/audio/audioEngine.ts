@@ -27,6 +27,9 @@ class OrbitAudioEngine {
   private activeSource: AudioBufferSourceNode | null = null;
   private activeSourceGain: GainNode | null = null;
   private activeSongId: string | null = null;
+  private activeBufferDuration = 0;
+  private activeLoop = false;
+  private loadingSongId: string | null = null;
   private playSessionId = 0;
 
   // Hold-arc sustain shimmer nodes
@@ -244,6 +247,9 @@ class OrbitAudioEngine {
     this.stopHoldShimmer();
     this.playSessionId += 1;
     this.activeSongId = null;
+    this.loadingSongId = null;
+    this.activeBufferDuration = 0;
+    this.activeLoop = false;
     if (this.activeSource) {
       this.teardownSource(this.activeSource, this.activeSourceGain);
     }
@@ -252,39 +258,13 @@ class OrbitAudioEngine {
     this.playing = false;
   }
 
-  async startAtOffset(
-    song: SongDefinition,
+  private launchBufferNode(
+    ctx: AudioContext,
+    buffer: AudioBuffer,
     offsetSec: number,
-    musicEnabled: boolean,
-    musicVol: number,
-    soundEnabled: boolean,
-    sfxVol: number,
-    loop = false,
-    previewGainScale = 1.0,
-  ): Promise<number | null> {
-    const ctx = this.ensureContext();
-    if (!ctx) return null;
-    this.stop();
-    const mySession = this.playSessionId;
-    this.activeSongId = song.id;
-
-    if (ctx.state === 'suspended') {
-      try {
-        await ctx.resume();
-      } catch {
-        // Continue cleanly
-      }
-    }
-    if (this.playSessionId !== mySession || this.activeSongId !== song.id) {
-      return null;
-    }
-
-    this.updateVolumes(musicEnabled, musicVol, soundEnabled, sfxVol);
-    const buffer = await this.loadSongBuffer(song);
-    if (!buffer || this.playSessionId !== mySession || this.activeSongId !== song.id) {
-      return null;
-    }
-
+    loop: boolean,
+    previewGainScale: number,
+  ): number {
     const safeOffset = Math.max(0, Math.min(offsetSec, Math.max(0, buffer.duration - 0.15)));
     const src = ctx.createBufferSource();
     src.buffer = buffer;
@@ -295,7 +275,7 @@ class OrbitAudioEngine {
     const srcGain = ctx.createGain();
     const now = ctx.currentTime;
     srcGain.gain.setValueAtTime(0.0001, now);
-    srcGain.gain.linearRampToValueAtTime(previewGainScale, now + 0.032);
+    srcGain.gain.linearRampToValueAtTime(previewGainScale, now + 0.025);
     src.connect(srcGain);
     if (this.musicGain) srcGain.connect(this.musicGain);
 
@@ -315,6 +295,8 @@ class OrbitAudioEngine {
 
     this.activeSource = src;
     this.activeSourceGain = srcGain;
+    this.activeBufferDuration = buffer.duration;
+    this.activeLoop = loop;
     this.playing = true;
     this.startedAtCtxTime = now;
     this.startOffsetSec = safeOffset;
@@ -323,13 +305,71 @@ class OrbitAudioEngine {
     return buffer.duration;
   }
 
+  async startAtOffset(
+    song: SongDefinition,
+    offsetSec: number,
+    musicEnabled: boolean,
+    musicVol: number,
+    soundEnabled: boolean,
+    sfxVol: number,
+    loop = false,
+    previewGainScale = 1.0,
+  ): Promise<number | null> {
+    const ctx = this.ensureContext();
+    if (!ctx) return null;
+    this.stop();
+    const mySession = this.playSessionId;
+    this.activeSongId = song.id;
+    this.loadingSongId = song.id;
+
+    // Fast-path synchronous launch if context is running & buffer is cached: eliminates pause/resume drift!
+    const cachedBuf = this.bufferCache.get(song.id);
+    if (cachedBuf && ctx.state === 'running') {
+      this.loadingSongId = null;
+      this.updateVolumes(musicEnabled, musicVol, soundEnabled, sfxVol);
+      return this.launchBufferNode(ctx, cachedBuf, offsetSec, loop, previewGainScale);
+    }
+
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch {
+        // Continue cleanly
+      }
+    }
+    if (this.playSessionId !== mySession || this.activeSongId !== song.id) {
+      return null;
+    }
+
+    this.updateVolumes(musicEnabled, musicVol, soundEnabled, sfxVol);
+    const buffer = cachedBuf || (await this.loadSongBuffer(song));
+    this.loadingSongId = null;
+    if (!buffer || this.playSessionId !== mySession || this.activeSongId !== song.id) {
+      return null;
+    }
+
+    return this.launchBufferNode(ctx, buffer, offsetSec, loop, previewGainScale);
+  }
+
   syncClock(): number | null {
     if (!this.playing || !this.ctx || this.ctx.state !== 'running') return null;
-    return this.startOffsetSec + Math.max(0, this.ctx.currentTime - this.startedAtCtxTime);
+    const raw = this.startOffsetSec + Math.max(0, this.ctx.currentTime - this.startedAtCtxTime);
+    if (this.activeLoop && this.activeBufferDuration > 0.2) {
+      return raw % this.activeBufferDuration;
+    }
+    return raw;
   }
 
   isPlaying(): boolean {
     return this.playing;
+  }
+
+  isLoading(): boolean {
+    return this.loadingSongId !== null;
+  }
+
+  getActiveSongId(): string | null {
+    return this.activeSongId;
   }
 
   getBassEnergy(): number {

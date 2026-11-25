@@ -16,6 +16,7 @@ import { IndexIcon, OrbIcon } from './OrbIcon';
 interface TitleScreenProps {
   profile: PlayerProfile;
   activeSong: SongDefinition;
+  songsCount?: number;
   onPlayPrimary: () => void;
   onEnterSongSelect: () => void;
   onOpenOrbVault: () => void;
@@ -29,6 +30,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
   ({
     profile,
     activeSong,
+    songsCount = 15,
     onPlayPrimary,
     onEnterSongSelect,
     onOpenOrbVault,
@@ -93,7 +95,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
       {
         id: 'tracks',
         label: 'Track Select',
-        sub: '13 Songs · Christmas & Arcade',
+        sub: `${songsCount} Songs · Christmas & Arcade`,
         primary: false,
         offsetClass: 'sm:ml-4',
         onClick: onEnterSongSelect,
@@ -108,7 +110,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
         primary: false,
         offsetClass: 'sm:ml-8',
         onClick: onOpenOrbVault,
-        renderIcon: () => <OrbIcon className="h-5 w-5 sm:h-5 sm:w-5 shrink-0 text-white" />,
+        renderIcon: () => <OrbIcon className="h-5 w-5 shrink-0 !text-white text-white" />,
       },
       {
         id: 'index',
@@ -117,7 +119,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
         primary: false,
         offsetClass: 'sm:ml-12',
         onClick: onOpenIndex,
-        renderIcon: () => <IndexIcon className="h-5 w-5 sm:h-5 sm:w-5 shrink-0 text-white" />,
+        renderIcon: () => <IndexIcon className="h-5 w-5 shrink-0 !text-white text-white" />,
       },
       {
         id: 'settings',

@@ -2,5 +2,7 @@
   "name": "ORBIT — Tokyo Disco Rhythm Arcade",
   "description": "Precision circular rhythm arcade blending 90s Tokyo disco atmosphere with osu!lazer-inspired slanted UI, 13 bundled tracks including unlockable Christmas specials, and tactile orbital gameplay.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
