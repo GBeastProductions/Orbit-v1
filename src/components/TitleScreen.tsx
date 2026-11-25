@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  BookOpen,
   Disc3,
   ListMusic,
   Play,
@@ -12,7 +11,7 @@ import {
 import { BADGE_CATALOG, CHASSIS_THEMES, WAVE_MODES } from '../data/catalog';
 import { PlayerProfile, SongDefinition } from '../types/game';
 import { DiscCartridge } from './DiscCartridge';
-import { OrbIcon } from './OrbIcon';
+import { IndexIcon, OrbIcon } from './OrbIcon';
 
 interface TitleScreenProps {
   profile: PlayerProfile;
@@ -109,7 +108,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
         primary: false,
         offsetClass: 'sm:ml-8',
         onClick: onOpenOrbVault,
-        renderIcon: () => <OrbIcon className="h-5 w-5 shrink-0" />,
+        renderIcon: () => <OrbIcon className="h-5 w-5 sm:h-5 sm:w-5 shrink-0 text-white" />,
       },
       {
         id: 'index',
@@ -118,9 +117,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
         primary: false,
         offsetClass: 'sm:ml-12',
         onClick: onOpenIndex,
-        renderIcon: () => (
-          <BookOpen className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 text-[#22d3ee]" />
-        ),
+        renderIcon: () => <IndexIcon className="h-5 w-5 sm:h-5 sm:w-5 shrink-0 text-white" />,
       },
       {
         id: 'settings',
@@ -169,8 +166,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
             </span>
             <span aria-hidden="true" className="text-white/25">·</span>
             <span className="inline-flex items-center gap-1.5">
-              <OrbIcon className="h-4 w-4" />
-              <strong className="font-bold text-[#fbbf24]">{profile.orbs.toLocaleString()}</strong>
+              <OrbIcon className="h-4 w-4 text-white" />
+              <strong className="font-bold text-white">{profile.orbs.toLocaleString()}</strong>
             </span>
           </div>
 
@@ -333,8 +330,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
           </div>
 
           <div className="flex items-center gap-2.5 whitespace-nowrap text-[#808ba1]">
-            <span className="hidden sm:inline">90s Tokyo Disco Arcade</span>
-            <span aria-hidden="true" className="hidden sm:inline">·</span>
+            <span>東京夜間音響</span>
+            <span aria-hidden="true">·</span>
             <span>渋谷レコード</span>
           </div>
         </footer>

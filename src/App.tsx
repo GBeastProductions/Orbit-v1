@@ -120,6 +120,7 @@ interface RuntimeEngine {
   tutorialLives: number;
   shownLessonIds: Set<string>;
   activeLesson: TutorialLesson | null;
+  activeLessonTimer: number;
   lessonSlowActive: boolean;
   tutorialGuideDisabled: boolean;
   dialTimeScale: number;
@@ -237,6 +238,7 @@ export default function App() {
     tutorialLives: 3,
     shownLessonIds: new Set<string>(),
     activeLesson: null,
+    activeLessonTimer: 0,
     lessonSlowActive: false,
     tutorialGuideDisabled: false,
     dialTimeScale: 1.0,
@@ -281,6 +283,7 @@ export default function App() {
     songProgressRatio: 0,
     songSections: [],
     songSection: 'INTRO',
+    songTime: 0,
     lessonSlowActive: false,
     activeLesson: null,
     flashlightActive: false,
@@ -408,17 +411,23 @@ export default function App() {
   }, []);
 
   const computeNominalSpeed = useCallback(
-    (diffId: DifficultyId, mods: ModCode[], stepSec: number, modeId: WaveModeId) => {
-      const diff = DIFFICULTIES[diffId] || DIFFICULTIES.CHILL;
-      let speed = diff.baseSpeed;
-      if (mods.includes('DT')) speed *= 1.16;
-      if (mods.includes('EZ')) speed *= 0.88;
-      if (modeId === 'PURPLE_SURGE') speed *= 1.32;
-      if (stepSec > 0) {
-        const beatFit = Math.max(1.25, Math.min(4.6, 2.3 / Math.max(0.26, stepSec)));
-        speed = speed * 0.52 + beatFit * 0.48;
-      }
-      return speed;
+    (diffId: DifficultyId, mods: ModCode[], bpm: number, modeId: WaveModeId) => {
+      const beatDur = 60 / Math.max(65, bpm);
+      const beatsPerRev =
+        diffId === 'CHILL'
+          ? 4.2
+          : diffId === 'NORMAL'
+          ? 3.5
+          : diffId === 'HARD'
+          ? 3.0
+          : diffId === 'INSANE'
+          ? 2.6
+          : 2.35;
+      let speed = (Math.PI * 2) / (beatsPerRev * beatDur);
+      if (mods.includes('DT')) speed *= 1.12;
+      if (mods.includes('EZ')) speed *= 0.90;
+      if (modeId === 'PURPLE_SURGE') speed *= 1.24;
+      return Math.max(1.25, Math.min(4.8, speed));
     },
     [],
   );
@@ -613,13 +622,13 @@ export default function App() {
         const candidate = eng.beatmap[eng.beatmapIndex];
         const dtToHit = candidate.hitTime - eng.songTime;
 
-        // Long quiet break/gap in music: cruise smoothly until ~1.18s before the next musical transient
-        if (dtToHit > 1.75) {
+        // Long quiet break/gap in music: cruise smoothly until ~1.35s before the next musical transient
+        if (dtToHit > 1.85) {
           eng.waitingForCue = true;
           eng.targets = [];
           eng.hazards = [];
           eng.portal = null;
-          eng.baseAngularSpeed = computeNominalSpeed(diffId, p.equippedMods, candidate.stepSec, candidate.modeId);
+          eng.baseAngularSpeed = computeNominalSpeed(diffId, p.equippedMods, song.bpm, candidate.modeId);
           eng.angularSpeed = eng.baseAngularSpeed;
           return;
         }
@@ -644,12 +653,7 @@ export default function App() {
       else if (modeId === 'CW_GREEN') eng.direction = 1;
       else if (mirrorMod && isFirstNote) eng.direction = -1;
 
-      const nominalSpeed = computeNominalSpeed(
-        diffId,
-        p.equippedMods,
-        note ? note.stepSec : 0.85,
-        modeId,
-      );
+      const nominalSpeed = computeNominalSpeed(diffId, p.equippedMods, song.bpm, modeId);
 
       // Compute Audio-Locked Omega & Target Angle so needle crosses target center AT exact note.hitTime!
       const rawDt = note && !eng.sandboxModeId ? note.hitTime - eng.songTime : 0;
@@ -657,9 +661,9 @@ export default function App() {
 
       let travelAngle: number;
       if (modeId === 'CASCADE_CHAIN') {
-        travelAngle = Math.max(0.65, Math.min(2.1, nominalSpeed * syncDt));
+        travelAngle = Math.max(0.58, Math.min(2.2, nominalSpeed * syncDt));
       } else if (note && !eng.sandboxModeId) {
-        travelAngle = Math.max(0.62, Math.min(4.85, nominalSpeed * syncDt));
+        travelAngle = Math.max(0.52, Math.min(4.9, nominalSpeed * syncDt));
       } else {
         const minOff = isFirstNote ? 1.65 : 1.35;
         travelAngle = minOff + Math.random() * (4.4 - minOff);
@@ -668,8 +672,13 @@ export default function App() {
       eng.baseAngularSpeed = note && !eng.sandboxModeId ? travelAngle / syncDt : nominalSpeed;
       eng.angularSpeed = eng.baseAngularSpeed;
 
-      const baseHW = getBaseHalfWidth(diffId, p.equippedMods);
+      const tutWidthBonus = eng.isTutorialRun ? 1.28 : 1.0;
+      const baseHW = Math.min(0.72, getBaseHalfWidth(diffId, p.equippedMods) * tutWidthBonus);
       const primaryAngle = wrapAngle(eng.spinnerAngle + eng.direction * travelAngle);
+
+      const noteHitT = note && !eng.sandboxModeId ? note.hitTime : undefined;
+      const standardGrace = eng.isTutorialRun ? 0.36 : diffId === 'CHILL' ? 0.32 : diffId === 'NORMAL' ? 0.28 : 0.24;
+      const multiGrace = Math.max(0.82, note ? Math.min(1.55, note.stepSec * 0.92) : 1.1);
 
       if (modeId === 'FEVER_SPINNER') {
         const maxHits = p.equippedMods.includes('RX') ? 5 : diffId === 'DEMON' ? 9 : 7;
@@ -684,6 +693,8 @@ export default function App() {
             seqNum: 0,
             alpha: 1,
             enteredWindow: false,
+            spawnTime: eng.songTime,
+            targetHitTime: noteHitT,
             isFeverSpinner: true,
             feverHits: 0,
             feverMaxHits: maxHits,
@@ -691,20 +702,23 @@ export default function App() {
           },
         ];
       } else if (modeId === 'HOLD_ARC') {
-        const holdDur = note?.holdDurationSec || 0.9;
-        const holdSpanRad = Math.max(0.62, Math.min(2.8, eng.baseAngularSpeed * holdDur));
+        const holdDur = note?.holdDurationSec || 0.85;
+        const holdSpanRad = Math.max(0.56, Math.min(2.75, eng.baseAngularSpeed * holdDur));
         const endAngle = wrapAngle(primaryAngle + eng.direction * holdSpanRad);
         eng.targets = [
           {
             id: 1,
             angle: primaryAngle,
             baseAngle: primaryAngle,
-            halfWidth: Math.max(0.22, baseHW * 1.05),
-            initialHalfWidth: Math.max(0.22, baseHW * 1.05),
+            halfWidth: Math.max(0.24, baseHW * 1.08),
+            initialHalfWidth: Math.max(0.24, baseHW * 1.08),
             tapsLeft: 1,
             seqNum: 0,
             alpha: 1,
             enteredWindow: false,
+            spawnTime: eng.songTime,
+            targetHitTime: noteHitT,
+            expireTime: noteHitT !== undefined ? noteHitT + Math.max(0.32, holdDur * 0.48) : undefined,
             isHold: true,
             holdSpanRad,
             holdEndAngle: endAngle,
@@ -716,45 +730,54 @@ export default function App() {
           },
         ];
       } else if (modeId === 'MULTI_CLUSTER') {
-        const secondAngle = wrapAngle(primaryAngle + eng.direction * 1.35);
+        const secondAngle = wrapAngle(primaryAngle + eng.direction * 1.32);
+        const clusterExpire = noteHitT !== undefined ? noteHitT + multiGrace : undefined;
         eng.targets = [
           {
             id: 1,
             angle: primaryAngle,
             baseAngle: primaryAngle,
-            halfWidth: baseHW * 0.92,
-            initialHalfWidth: baseHW * 0.92,
+            halfWidth: baseHW * 0.94,
+            initialHalfWidth: baseHW * 0.94,
             tapsLeft: 1,
             seqNum: 0,
             alpha: 1,
             enteredWindow: false,
+            spawnTime: eng.songTime,
+            targetHitTime: noteHitT,
+            expireTime: clusterExpire,
           },
           {
             id: 2,
             angle: secondAngle,
             baseAngle: secondAngle,
-            halfWidth: baseHW * 0.92,
-            initialHalfWidth: baseHW * 0.92,
+            halfWidth: baseHW * 0.94,
+            initialHalfWidth: baseHW * 0.94,
             tapsLeft: 1,
             seqNum: 0,
             alpha: 1,
             enteredWindow: false,
+            spawnTime: eng.songTime,
+            targetHitTime: noteHitT !== undefined ? noteHitT + 1.32 / Math.max(1, eng.baseAngularSpeed) : undefined,
+            expireTime: clusterExpire,
           },
         ];
       } else if (modeId === 'ORDERED_SEQ') {
-        const span = Math.max(0.82, Math.min(1.38, travelAngle * 0.72));
+        const span = Math.max(0.76, Math.min(1.28, travelAngle * 0.68));
         const a1 = primaryAngle;
         const a2 = wrapAngle(a1 + eng.direction * span);
         const a3 = wrapAngle(a2 + eng.direction * span);
-        const hw = baseHW * 0.88;
+        const hw = baseHW * 0.90;
+        const seqExpire = noteHitT !== undefined ? noteHitT + (span * 2) / Math.max(1, eng.baseAngularSpeed) + standardGrace : undefined;
         eng.targets = [
-          { id: 1, angle: a1, baseAngle: a1, halfWidth: hw, initialHalfWidth: hw, tapsLeft: 1, seqNum: 1, alpha: 1, enteredWindow: false },
-          { id: 2, angle: a2, baseAngle: a2, halfWidth: hw, initialHalfWidth: hw, tapsLeft: 1, seqNum: 2, alpha: 1, enteredWindow: false },
-          { id: 3, angle: a3, baseAngle: a3, halfWidth: hw, initialHalfWidth: hw, tapsLeft: 1, seqNum: 3, alpha: 1, enteredWindow: false },
+          { id: 1, angle: a1, baseAngle: a1, halfWidth: hw, initialHalfWidth: hw, tapsLeft: 1, seqNum: 1, alpha: 1, enteredWindow: false, spawnTime: eng.songTime, targetHitTime: noteHitT, expireTime: seqExpire },
+          { id: 2, angle: a2, baseAngle: a2, halfWidth: hw, initialHalfWidth: hw, tapsLeft: 1, seqNum: 2, alpha: 1, enteredWindow: false, spawnTime: eng.songTime, targetHitTime: noteHitT !== undefined ? noteHitT + span / Math.max(1, eng.baseAngularSpeed) : undefined, expireTime: seqExpire },
+          { id: 3, angle: a3, baseAngle: a3, halfWidth: hw, initialHalfWidth: hw, tapsLeft: 1, seqNum: 3, alpha: 1, enteredWindow: false, spawnTime: eng.songTime, targetHitTime: noteHitT !== undefined ? noteHitT + (span * 2) / Math.max(1, eng.baseAngularSpeed) : undefined, expireTime: seqExpire },
         ];
       } else if (modeId === 'METEOR_SLASH') {
-        const echoOffset = Math.max(1.05, Math.min(1.9, travelAngle * 0.85));
+        const echoOffset = Math.max(0.95, Math.min(1.75, travelAngle * 0.82));
         const echoAngle = wrapAngle(primaryAngle - eng.direction * echoOffset);
+        const slashExpire = noteHitT !== undefined ? noteHitT + multiGrace : undefined;
         eng.targets = [
           {
             id: 1,
@@ -766,17 +789,23 @@ export default function App() {
             seqNum: 0,
             alpha: 1,
             enteredWindow: false,
+            spawnTime: eng.songTime,
+            targetHitTime: noteHitT,
+            expireTime: slashExpire,
           },
           {
             id: 2,
             angle: echoAngle,
             baseAngle: echoAngle,
-            halfWidth: baseHW * 1.05,
-            initialHalfWidth: baseHW * 1.05,
+            halfWidth: baseHW * 1.06,
+            initialHalfWidth: baseHW * 1.06,
             tapsLeft: 1,
             seqNum: 0,
             alpha: 0.48,
             enteredWindow: false,
+            spawnTime: eng.songTime,
+            targetHitTime: noteHitT !== undefined ? noteHitT + echoOffset / Math.max(1, eng.baseAngularSpeed * 1.15) : undefined,
+            expireTime: slashExpire,
             isMeteorEcho: true,
           },
         ];
@@ -804,17 +833,24 @@ export default function App() {
             seqNum: 0,
             alpha: 1,
             enteredWindow: false,
+            spawnTime: eng.songTime,
+            targetHitTime: noteHitT,
+            expireTime: noteHitT !== undefined ? noteHitT + standardGrace : undefined,
           },
         ];
       } else {
         const hw =
           modeId === 'SNIPER_MICRO'
-            ? Math.max(0.11, baseHW * 0.62)
+            ? Math.max(0.12, baseHW * 0.64)
             : modeId === 'DECAY_ARC'
             ? baseHW * 1.18
             : baseHW;
         const tapsNeeded =
           modeId === 'DOUBLE_TAP' ? 2 : modeId === 'BEAT_BURST' ? note?.burstCount || 3 : 1;
+        const tapExpire =
+          noteHitT !== undefined
+            ? noteHitT + (tapsNeeded > 1 ? Math.max(standardGrace + 0.34, multiGrace * 0.85) : standardGrace)
+            : undefined;
         eng.targets = [
           {
             id: 1,
@@ -826,6 +862,9 @@ export default function App() {
             seqNum: 0,
             alpha: 1,
             enteredWindow: false,
+            spawnTime: eng.songTime,
+            targetHitTime: noteHitT,
+            expireTime: tapExpire,
           },
         ];
         if (modeId === 'HAZARD_DECOY') {
@@ -884,6 +923,7 @@ export default function App() {
       eng.tutorialLives = 3;
       eng.shownLessonIds = new Set<string>();
       eng.activeLesson = null;
+      eng.activeLessonTimer = 0;
       eng.lessonSlowActive = false;
       eng.tutorialGuideDisabled = false;
       eng.dialTimeScale = 1.0;
@@ -1036,31 +1076,38 @@ export default function App() {
       }
 
       if (eng.isTutorialRun) {
-        eng.tutorialLives -= 1;
-        setUiTutorialLives(eng.tutorialLives);
         if (eng.tutorialLives > 0) {
-          eng.shakeTime = 0.28;
-          eng.shakeAmplitude = 9;
-          eng.hubStatusText = `${eng.tutorialLives} LIVES`;
-          eng.hubStatusColor = '#f59e0b';
-          eng.hubStatusTimer = 0.85;
-          audioEngine.playShieldBreak(p.soundEnabled);
-          spawnNextWave(false, null);
-          return;
+          eng.tutorialLives -= 1;
+          setUiTutorialLives(eng.tutorialLives);
         }
+        eng.shakeTime = 0.22;
+        eng.shakeAmplitude = 6;
+        eng.hubStatusText = eng.tutorialLives > 0 ? `${eng.tutorialLives} LIVES` : 'PRACTICE FLOW';
+        eng.hubStatusColor = '#f59e0b';
+        eng.hubStatusTimer = 0.75;
+        audioEngine.playShieldBreak(p.soundEnabled);
+        eng.waveIndex += 1;
+        spawnNextWave(false, null);
+        return;
       }
 
-      // Integrity / HP Drain Model (NF prevents failout; SD enforces instant fail; Sandbox never fails out)
+      // Integrity / HP Drain Model: missing 1 note gently costs Integrity without sudden death (except Sudden Death mod)
       const isNoFail = p.equippedMods.includes('NF') || Boolean(eng.sandboxModeId);
       const isSD = p.equippedMods.includes('SD') || isSuddenFail;
-      const drain =
-        eng.waveModeId === 'ONE_PASS'
-          ? 34
-          : p.equippedMods.includes('HR')
-          ? 25
-          : p.equippedMods.includes('EZ')
+      const diffId = getEffectiveDifficulty(p, song);
+      const baseDrain =
+        diffId === 'CHILL'
+          ? 7
+          : diffId === 'NORMAL'
+          ? 9
+          : diffId === 'HARD'
           ? 12
-          : 19;
+          : diffId === 'INSANE'
+          ? 14
+          : 16;
+      const modeAdj = eng.waveModeId === 'ONE_PASS' ? 5 : 0;
+      const modMult = p.equippedMods.includes('HR') ? 1.3 : p.equippedMods.includes('EZ') ? 0.55 : 1.0;
+      const drain = Math.round((baseDrain + modeAdj) * modMult);
 
       eng.hp = isSD && !isNoFail ? 0 : Math.max(isNoFail ? 1 : 0, eng.hp - drain);
       setUiHp(eng.hp);
@@ -1068,11 +1115,11 @@ export default function App() {
       if (eng.hp > 0) {
         // Non-fatal miss: shock feedback + advance smoothly to next synced note!
         audioEngine.playMiss(p.soundEnabled);
-        eng.shakeTime = 0.24;
-        eng.shakeAmplitude = 8;
+        eng.shakeTime = 0.22;
+        eng.shakeAmplitude = 7;
         eng.hubStatusText = reasonText;
         eng.hubStatusColor = '#ef4444';
-        eng.hubStatusTimer = 0.55;
+        eng.hubStatusTimer = 0.52;
         eng.hitEffects.push({
           timer: 0.4,
           duration: 0.4,
@@ -1099,7 +1146,7 @@ export default function App() {
 
       finalizeRunSummary(false);
     },
-    [finalizeRunSummary, getActiveSong, spawnNextWave],
+    [finalizeRunSummary, getActiveSong, getEffectiveDifficulty, spawnNextWave],
   );
 
   const awardHitSuccess = useCallback(
@@ -1123,7 +1170,7 @@ export default function App() {
       const pts = computeHitPoints(tier, diffId, p.equippedMods, eng.streak);
       eng.score += pts;
 
-      const hpGain = isPerfect ? 3.5 : tier === 'GREAT' ? 2.0 : 0.6;
+      const hpGain = isPerfect ? 4.5 : tier === 'GREAT' ? 2.8 : 1.2;
       eng.hp = Math.min(100, eng.hp + hpGain);
       setUiHp(eng.hp);
 
@@ -1268,6 +1315,32 @@ export default function App() {
           nearest = t;
         }
       }
+
+      // Early Tap Guard: if player clicked far too early before beat arrival, nudge politely
+      // WITHOUT deleting the upcoming on-beat sector so rhythm stays locked!
+      const timeRemaining = nearest?.targetHitTime ? nearest.targetHitTime - eng.songTime : 0;
+      if (nearest && !eng.sandboxModeId && (timeRemaining > 0.30 || minD > nearest.halfWidth + 0.48)) {
+        eng.streak = 0;
+        setUiStreak(0);
+        if (!eng.isTutorialRun && !p.equippedMods.includes('NF')) {
+          eng.hp = Math.max(1, eng.hp - 3);
+          setUiHp(eng.hp);
+        }
+        eng.hubStatusText = 'WAIT BEAT';
+        eng.hubStatusColor = '#fbbf24';
+        eng.hubStatusTimer = 0.42;
+        eng.hitEffects.push({
+          timer: 0.28,
+          duration: 0.28,
+          angle: eng.spinnerAngle,
+          isPerfect: false,
+          label: 'EARLY',
+          color: '#fbbf24',
+        });
+        audioEngine.playShieldBreak(p.soundEnabled);
+        return;
+      }
+
       const dirErr = nearest ? signedAngleDiff(eng.spinnerAngle, nearest.angle) * eng.direction : 0;
       triggerMiss(dirErr < 0 ? 'TOO EARLY' : 'TOO LATE', nearest);
       return;
@@ -1279,11 +1352,8 @@ export default function App() {
       return;
     }
 
-    if (eng.lessonSlowActive) {
-      eng.lessonSlowActive = false;
-      eng.activeLesson = null;
-      eng.dialTimeScale = 1.0;
-      setUiActiveLesson(null);
+    if (eng.activeLesson) {
+      eng.activeLessonTimer = 0.9;
     }
 
     // 6. Engage HOLD_ARC sustain
@@ -1482,15 +1552,24 @@ export default function App() {
             const upcoming = eng.beatmap[eng.beatmapIndex];
             if (!upcoming) {
               finalizeRunSummary(true);
-            } else if (upcoming.hitTime - eng.songTime <= 1.25) {
+            } else if (upcoming.hitTime - eng.songTime <= 1.35) {
               spawnNextWave(false, null);
+            }
+          }
+
+          // Tutorial Coach Banner stays synced at 1.0x audio speed (zero slow-mo clock drift!)
+          if (eng.activeLesson) {
+            eng.activeLessonTimer -= dt;
+            if (eng.activeLessonTimer <= 0) {
+              eng.activeLesson = null;
+              setUiActiveLesson(null);
             }
           }
 
           if (
             eng.isTutorialRun &&
             !eng.tutorialGuideDisabled &&
-            !eng.lessonSlowActive &&
+            !eng.activeLesson &&
             eng.targets.length > 0
           ) {
             const nextLesson = TUTORIAL_LESSONS.find(
@@ -1501,25 +1580,23 @@ export default function App() {
             );
             if (nextLesson) {
               const t0 = eng.targets[0];
-              const signedAhead = signedAngleDiff(t0.angle, eng.spinnerAngle) * eng.direction;
-              if (signedAhead > 0.15 && signedAhead < 0.92) {
+              const timeAhead = t0.targetHitTime ? t0.targetHitTime - eng.songTime : 0.8;
+              if (timeAhead <= 1.6) {
                 eng.shownLessonIds.add(nextLesson.id);
-                eng.lessonSlowActive = true;
                 eng.activeLesson = nextLesson;
-                eng.dialTimeScale = 0.28;
+                eng.activeLessonTimer = 3.8;
                 audioEngine.playLessonSlowCue(p.soundEnabled);
                 setUiActiveLesson(nextLesson);
               }
             }
           }
 
-          const targetDialScale = eng.lessonSlowActive ? 0.28 : 1.0;
-          eng.dialTimeScale += (targetDialScale - eng.dialTimeScale) * Math.min(1, dt * 10);
-          const simDt = dt * eng.dialTimeScale;
+          eng.dialTimeScale = 1.0;
+          const simDt = dt;
           eng.waveElapsed += simDt;
 
           if (eng.waveModeId === 'BRAKE_DRIFT') {
-            const mod = 0.58 + 0.62 * Math.abs(Math.sin(eng.waveElapsed * 3.4));
+            const mod = 0.68 + 0.50 * Math.abs(Math.sin(eng.waveElapsed * 3.4));
             eng.angularSpeed = eng.baseAngularSpeed * mod;
           } else if (eng.waveModeId !== 'METEOR_SLASH') {
             eng.angularSpeed = eng.baseAngularSpeed;
@@ -1549,11 +1626,11 @@ export default function App() {
               t.holdElapsedSec = (t.holdElapsedSec || 0) + simDt;
               const prog = t.holdElapsedSec / dur;
               audioEngine.updateHoldShimmer(prog);
-              if (prog >= 1.18) {
-                // Auto-complete cleanly right at the end of the ribbon if user didn't release early
+              if (prog >= 1.12) {
+                // Auto-complete cleanly right at the end of the ribbon if user holds cleanly through cap
                 audioEngine.stopHoldShimmer();
                 eng.targets.splice(i, 1);
-                awardHitSuccess('GREAT', 0.12, 4, 'HOLD COMPLETE');
+                awardHitSuccess('GREAT', 0.1, 3, 'HOLD COMPLETE');
                 eng.waveIndex += 1;
                 spawnNextWave(false, eng.sandboxModeId);
                 break;
@@ -1612,6 +1689,17 @@ export default function App() {
                 break;
               }
             }
+          } else if (!eng.sandboxModeId && eng.targets.length > 0) {
+            // Audio-Synced Beat Expiry Recovery: if the music beat passes past late grace
+            // without player tapping, softly record miss & smoothly advance to NEXT synced beat
+            // so gameplay never freezes behind the song!
+            const pendingExpire = eng.targets.filter((t) => !t.isHolding && !t.isFeverSpinner);
+            if (pendingExpire.length > 0) {
+              const lastExpire = Math.max(...pendingExpire.map((t) => t.expireTime ?? 999999));
+              if (eng.songTime > lastExpire) {
+                triggerMiss('BEAT MISSED', pendingExpire[0]);
+              }
+            }
           }
         }
       }
@@ -1647,6 +1735,7 @@ export default function App() {
       cs.songProgressRatio = eng.songTime / Math.max(1, song.durationSec);
       cs.songSections = song.sections;
       cs.songSection = eng.songSection;
+      cs.songTime = eng.songTime;
       cs.lessonSlowActive = eng.lessonSlowActive;
       cs.activeLesson = eng.activeLesson;
       cs.flashlightActive = p.equippedMods.includes('FL');

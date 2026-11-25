@@ -45,6 +45,7 @@ export interface CanvasRenderState {
   songProgressRatio: number;
   songSections: SongSectionCue[];
   songSection: SongSection;
+  songTime: number;
   lessonSlowActive: boolean;
   activeLesson: TutorialLesson | null;
   flashlightActive: boolean;
@@ -527,6 +528,20 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
         ctx.lineWidth = activeThis ? 3 : 1.5;
         ctx.stroke();
 
+        // Approach Timing Halo (contracts smoothly onto outer rim at targetHitTime!)
+        if (st.phase === 'PLAYING' && t.targetHitTime && st.songTime <= t.targetHitTime && !seqBlocked) {
+          const timeToHit = t.targetHitTime - st.songTime;
+          if (timeToHit > 0.01 && timeToHit <= 1.05) {
+            const ratio = Math.min(1, timeToHit / 1.05);
+            const approachR = outerRadius + ratio * 22;
+            ctx.beginPath();
+            ctx.arc(cx, cy, approachR, a0, a1);
+            ctx.strokeStyle = timeToHit <= 0.14 ? '#fde047' : baseColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+        }
+
         // Center Bullseye Line
         ctx.beginPath();
         ctx.moveTo(cx + Math.cos(t.angle) * (innerRadius + 2), cy + Math.sin(t.angle) * (innerRadius + 2));
@@ -655,9 +670,9 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
           ctx.font = '900 18px "JetBrains Mono", monospace';
           ctx.fillText(`${st.streak}x`, cx, cy + 8);
         } else {
-          ctx.fillStyle = st.lessonSlowActive ? '#fde047' : isIlluminated ? theme.bright : '#a1abbe';
+          ctx.fillStyle = st.activeLesson ? '#fde047' : isIlluminated ? theme.bright : '#a1abbe';
           ctx.font = '800 10px "JetBrains Mono", monospace';
-          const dirLabel = st.lessonSlowActive ? 'SLOW 0.28×' : st.direction === 1 ? 'CW ↻' : 'CCW ↺';
+          const dirLabel = st.activeLesson ? 'GUIDE ACTIVE' : st.direction === 1 ? 'CW ↻' : 'CCW ↺';
           ctx.fillText(dirLabel, cx, cy - 10);
           ctx.fillStyle = streakTier >= 2 ? '#fbbf24' : '#f3f4f6';
           ctx.font = '900 18px "JetBrains Mono", monospace';

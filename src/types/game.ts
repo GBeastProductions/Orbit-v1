@@ -179,6 +179,10 @@ export interface TargetSector {
   seqNum: number;
   alpha: number;
   enteredWindow: boolean;
+  // Audio-clock synchronization & recovery metadata
+  spawnTime?: number;
+  targetHitTime?: number;
+  expireTime?: number;
   // Phase 2 Hold Arc & Special Mechanic Fields
   isHold?: boolean;
   holdSpanRad?: number;

@@ -227,20 +227,23 @@ function pickMusicalModeForAnchor(
     return { modeId: 'ONE_PASS' };
   }
 
-  // Tutorial track hand-sculpted progression
+  // Tutorial track hand-sculpted gentle progression synced tightly to intro & drop chords
   if (song.id === 'moments_passing') {
-    if (index < 3) return { modeId: coreCw };
-    if (index === 3) return { modeId: 'HOLD_ARC', holdDurationSec: Math.min(1.15, Math.max(0.65, gapToNextSec * 0.62)) };
+    if (index <= 1) return { modeId: coreCw };
+    if (index === 2) return { modeId: coreCw };
+    if (index === 3 && gapToNextSec >= 1.15) {
+      return { modeId: 'HOLD_ARC', holdDurationSec: Number(Math.min(1.1, Math.max(0.65, gapToNextSec - 0.42)).toFixed(2)) };
+    }
     if (index === 4) return { modeId: coreFlip };
-    if (gapToNextSec >= 1.15 && index % 5 === 2) {
-      return { modeId: 'HOLD_ARC', holdDurationSec: Math.min(1.25, gapToNextSec * 0.62) };
+    if (gapToNextSec >= 1.3 && index % 5 === 2) {
+      return { modeId: 'HOLD_ARC', holdDurationSec: Number(Math.min(1.2, gapToNextSec - 0.44)).toFixed(2) as unknown as number };
     }
     if (section === 'DROP' && index % 4 === 3) return { modeId: coreFlip };
     return { modeId: coreCw };
   }
 
   // Portal Link mod during breakdowns
-  if (equippedMods.includes('OS') && section === 'BREAKDOWN' && index % 4 === 2) {
+  if (equippedMods.includes('OS') && section === 'BREAKDOWN' && index % 4 === 2 && gapToNextSec >= 0.72) {
     return { modeId: 'OSU_PORTAL' };
   }
 
@@ -249,34 +252,36 @@ function pickMusicalModeForAnchor(
     return { modeId: 'GHOST_PULSE' };
   }
 
-  // Fever Spinner on Build-Up -> Drop transitions (Hard+ or Overclock)
+  // Fever Spinner on Build-Up -> Drop transitions (Hard+ or Overclock) with guaranteed room before drop
   const isDropTransition = prevSection === 'BUILD-UP' && section === 'DROP';
   if (
     isDropTransition &&
     (diffId === 'HARD' || diffId === 'INSANE' || diffId === 'DEMON' || equippedMods.includes('OC')) &&
-    gapToNextSec >= 1.1
+    gapToNextSec >= 1.25
   ) {
-    return { modeId: 'FEVER_SPINNER', holdDurationSec: Math.min(1.75, gapToNextSec * 0.8) };
+    return { modeId: 'FEVER_SPINNER', holdDurationSec: Number(Math.min(1.6, gapToNextSec - 0.34)).toFixed(2) as unknown as number };
   }
 
-  // Natural Hold Arc when music opens up between beats
+  // Natural Hold Arc when music opens up between beats — always leave >= 0.38s breathing room after release
+  const minHoldGap = diffId === 'CHILL' ? 1.22 : 1.04;
   const canPlaceHold =
-    gapToNextSec >= (diffId === 'CHILL' ? 1.18 : 0.96) &&
+    gapToNextSec >= minHoldGap &&
     index > 1 &&
     (section === 'INTRO' || section === 'BREAKDOWN' || section === 'BUILD-UP' || (section === 'DROP' && energy < 0.78));
   if (canPlaceHold) {
-    const holdModulo = Math.max(3, Math.round(1 / Math.max(0.12, holdBias)));
-    if (index % holdModulo === 2 || gapToNextSec >= 1.55) {
-      const dur = Math.max(0.55, Math.min(1.65, gapToNextSec * 0.64));
+    const holdModulo = Math.max(3, Math.round(1 / Math.max(0.14, holdBias)));
+    if (index % holdModulo === 2 || gapToNextSec >= 1.58) {
+      const dur = Math.max(0.55, Math.min(1.55, gapToNextSec - 0.40));
       return { modeId: 'HOLD_ARC', holdDurationSec: Number(dur.toFixed(2)) };
     }
   }
 
   const hasOverclock = equippedMods.includes('OC');
+  const canSlash = gapToNextSec >= 0.64;
 
   if (diffId === 'CHILL') {
     if (hasOverclock && section === 'DROP' && index % 5 === 2) return { modeId: 'DOUBLE_TAP' };
-    if (hasOverclock && section === 'BUILD-UP' && index % 6 === 4) return { modeId: 'METEOR_SLASH' };
+    if (hasOverclock && canSlash && section === 'BUILD-UP' && index % 6 === 4) return { modeId: 'METEOR_SLASH' };
     return { modeId: index % 6 === 4 ? coreFlip : coreCw };
   }
 
@@ -284,8 +289,8 @@ function pickMusicalModeForAnchor(
     if (section === 'DROP') {
       const pool: WaveModeId[] =
         burstBias >= 0.22
-          ? [coreCw, 'DOUBLE_TAP', coreFlip, 'METEOR_SLASH', 'PURPLE_SURGE', coreCw]
-          : [coreCw, coreFlip, 'DOUBLE_TAP', 'PURPLE_SURGE', 'METEOR_SLASH'];
+          ? [coreCw, 'DOUBLE_TAP', coreFlip, canSlash ? 'METEOR_SLASH' : coreCw, 'PURPLE_SURGE', coreCw]
+          : [coreCw, coreFlip, 'DOUBLE_TAP', 'PURPLE_SURGE', canSlash ? 'METEOR_SLASH' : coreFlip];
       return { modeId: pool[index % pool.length] };
     }
     if (index % 7 === 5) return { modeId: 'DOUBLE_TAP' };
@@ -297,20 +302,27 @@ function pickMusicalModeForAnchor(
       const pool: WaveModeId[] = [
         coreCw,
         'DOUBLE_TAP',
-        'METEOR_SLASH',
+        canSlash ? 'METEOR_SLASH' : coreFlip,
         'BEAT_BURST',
         'CASCADE_CHAIN',
         coreFlip,
-        'ORDERED_SEQ',
+        gapToNextSec >= 0.9 ? 'ORDERED_SEQ' : coreCw,
         'PURPLE_SURGE',
       ];
       const chosen = pool[index % pool.length];
       return { modeId: chosen, burstCount: chosen === 'BEAT_BURST' ? 3 : undefined };
     }
-    if (section === 'BUILD-UP' && index % 5 === 3) {
-      return { modeId: 'FEVER_SPINNER', holdDurationSec: 1.25 };
+    if (section === 'BUILD-UP' && index % 5 === 3 && gapToNextSec >= 1.15) {
+      return { modeId: 'FEVER_SPINNER', holdDurationSec: Number(Math.min(1.35, gapToNextSec - 0.32)).toFixed(2) as unknown as number };
     }
-    const calmPool: WaveModeId[] = [coreCw, coreFlip, 'SNIPER_MICRO', 'MULTI_CLUSTER', 'DECAY_ARC', 'METEOR_SLASH'];
+    const calmPool: WaveModeId[] = [
+      coreCw,
+      coreFlip,
+      'SNIPER_MICRO',
+      gapToNextSec >= 0.72 ? 'MULTI_CLUSTER' : coreCw,
+      'DECAY_ARC',
+      canSlash ? 'METEOR_SLASH' : coreFlip,
+    ];
     return { modeId: calmPool[index % calmPool.length] };
   }
 
@@ -319,11 +331,11 @@ function pickMusicalModeForAnchor(
       const pool: WaveModeId[] = [
         'DOUBLE_TAP',
         'BEAT_BURST',
-        'METEOR_SLASH',
+        canSlash ? 'METEOR_SLASH' : 'PURPLE_SURGE',
         'CASCADE_CHAIN',
         'PURPLE_SURGE',
-        'OSU_PORTAL',
-        'ORDERED_SEQ',
+        gapToNextSec >= 0.72 ? 'OSU_PORTAL' : coreCw,
+        gapToNextSec >= 0.85 ? 'ORDERED_SEQ' : 'DOUBLE_TAP',
         'BRAKE_DRIFT',
         coreFlip,
       ];
@@ -334,33 +346,35 @@ function pickMusicalModeForAnchor(
       'SNIPER_MICRO',
       'SPRING_BOUNCE',
       'DECAY_ARC',
-      'MULTI_CLUSTER',
+      gapToNextSec >= 0.72 ? 'MULTI_CLUSTER' : coreCw,
       'GHOST_PULSE',
-      'FEVER_SPINNER',
+      gapToNextSec >= 1.15 ? 'FEVER_SPINNER' : 'DOUBLE_TAP',
       'HAZARD_DECOY',
     ];
     const chosen = calmPool[index % calmPool.length];
     return {
       modeId: chosen,
-      holdDurationSec: chosen === 'FEVER_SPINNER' ? 1.2 : undefined,
+      holdDurationSec:
+        chosen === 'FEVER_SPINNER'
+          ? Number(Math.min(1.25, gapToNextSec - 0.32)).toFixed(2) as unknown as number
+          : undefined,
     };
   }
 
   // DEMON: Crisp click-sync showcase blending double-clicks, bursts, flips, slashes, portals, and selective ONE_PASS drop accents!
   if (section === 'DROP') {
-    // Only selective strong drop downbeats (~1 in 6) carry strict ONE_PASS
     if (energy >= 0.78 && index % 6 === 0) {
       return { modeId: 'ONE_PASS' };
     }
     const demonDropPool: WaveModeId[] = [
       'DOUBLE_TAP',
       'BEAT_BURST',
-      'METEOR_SLASH',
+      canSlash ? 'METEOR_SLASH' : 'DOUBLE_TAP',
       'HAZARD_DECOY',
       'CASCADE_CHAIN',
-      'OSU_PORTAL',
+      gapToNextSec >= 0.72 ? 'OSU_PORTAL' : 'PURPLE_SURGE',
       'PURPLE_SURGE',
-      'ORDERED_SEQ',
+      gapToNextSec >= 0.82 ? 'ORDERED_SEQ' : 'BEAT_BURST',
       'BRAKE_DRIFT',
       flipBias >= 0.24 ? coreFlip : coreCw,
     ];
@@ -368,8 +382,8 @@ function pickMusicalModeForAnchor(
     return { modeId: chosen, burstCount: chosen === 'BEAT_BURST' ? 3 : undefined };
   }
 
-  if (section === 'BUILD-UP' && index % 6 === 4) {
-    return { modeId: 'FEVER_SPINNER', holdDurationSec: 1.15 };
+  if (section === 'BUILD-UP' && index % 6 === 4 && gapToNextSec >= 1.15) {
+    return { modeId: 'FEVER_SPINNER', holdDurationSec: Number(Math.min(1.2, gapToNextSec - 0.32)).toFixed(2) as unknown as number };
   }
 
   const demonVersePool: WaveModeId[] = [
@@ -378,16 +392,30 @@ function pickMusicalModeForAnchor(
     'GHOST_PULSE',
     'SPRING_BOUNCE',
     'DECAY_ARC',
-    'MULTI_CLUSTER',
-    'ORDERED_SEQ',
+    gapToNextSec >= 0.72 ? 'MULTI_CLUSTER' : coreCw,
+    gapToNextSec >= 0.82 ? 'ORDERED_SEQ' : coreFlip,
     coreFlip,
   ];
   return { modeId: demonVersePool[index % demonVersePool.length] };
 }
 
 /**
+ * Snaps a candidate audio transient onto the nearest musical subdivision (1/4 beat)
+ * when within 55ms so notes land cleanly on the song's rhythmic pulse.
+ */
+function snapToMusicalSubdivision(t: number, phase: number, beatDur: number): number {
+  const sub = beatDur / 4; // 16th-note pulse resolution
+  const steps = Math.round((t - phase) / sub);
+  const gridT = phase + steps * sub;
+  if (Math.abs(gridT - t) <= 0.055) {
+    return Number(gridT.toFixed(3));
+  }
+  return Number(t.toFixed(3));
+}
+
+/**
  * Generates an audio-locked BeatmapNote[] where EVERY note hits on a real MP3 transient
- * or quantized subdivision inside that specific track.
+ * or quantized musical subdivision inside that specific track.
  */
 export function buildSongBeatmap(
   song: SongDefinition,
@@ -398,20 +426,23 @@ export function buildSongBeatmap(
   const cfg = DIFFICULTIES[effectiveDiff] || DIFFICULTIES.CHILL;
   const blueprint = SONG_CHARTS[song.id];
   const dtActive = equippedMods.includes('DT');
-  const minGap = Math.max(0.18, cfg.minGapSec * (dtActive ? 0.8 : 1.0));
-  const targetGap = cfg.targetGapSec * (dtActive ? 0.82 : 1.0);
+  const minGap = Math.max(0.20, cfg.minGapSec * (dtActive ? 0.82 : 1.0));
+  const targetGap = cfg.targetGapSec * (dtActive ? 0.84 : 1.0);
 
   // Path 1: Custom MP3 uploaded by player
   if (song.isCustom && song.customOnsets && song.customOnsets.length >= 8) {
     const notes: BeatmapNote[] = [];
+    const beatDur = 60 / Math.max(65, song.bpm);
     let lastT = -99;
     let idx = 0;
     let prevSec: SongSection = 'INTRO';
     for (let i = 0; i < song.customOnsets.length; i++) {
-      const t = song.customOnsets[i];
-      if (t < 1.15 || t > song.durationSec - 1.35) continue;
+      const rawT = song.customOnsets[i];
+      if (rawT < 1.2 || rawT > song.durationSec - 1.35) continue;
+      const t = snapToMusicalSubdivision(rawT, song.customOnsets[0] || 0.25, beatDur);
       if (t - lastT < minGap) continue;
-      const nextT = song.customOnsets.find((nt, j) => j > i && nt - t >= minGap) || song.durationSec - 1.0;
+      const nextT =
+        song.customOnsets.find((nt, j) => j > i && nt - t >= minGap) || song.durationSec - 1.0;
       const gap = Math.max(0.24, nextT - t);
       const prog = t / Math.max(1, song.durationSec);
       const sec = getSectionAtProgress(song, prog);
@@ -435,7 +466,7 @@ export function buildSongBeatmap(
         modeId: picked.modeId,
         section: sec,
         energy: 0.72,
-        holdDurationSec: picked.holdDurationSec,
+        holdDurationSec: picked.holdDurationSec ? Number(picked.holdDurationSec) : undefined,
         burstCount: picked.burstCount,
       });
       prevSec = sec;
@@ -445,63 +476,96 @@ export function buildSongBeatmap(
     if (notes.length >= 6) return notes;
   }
 
-  // Path 2: Official Bundled 13 MP3s using analyzed real transients & beat-grid fills
+  // Path 2: Official Bundled 13 MP3s using quantized musical transient anchors & steady beat-grid backbone
   if (blueprint && blueprint.peaks.length > 0) {
     const dur = blueprint.durationSec;
     const beatDur = 60 / Math.max(65, blueprint.bpm);
     const phase = blueprint.phaseSec || 0.2;
     const rawPeaks = blueprint.peaks;
 
-    // Step A: Build unified candidate anchor list merging true transients + steady beat grid pulses in quiet gaps
-    const anchors: { t: number; e: number }[] = [];
+    // Step A: Build unified candidate anchors quantized cleanly onto musical subdivisions
+    const anchorMap = new Map<number, { t: number; e: number }>();
+
     for (const [pt, pe] of rawPeaks) {
-      anchors.push({ t: pt, e: pe });
+      const snapped = snapToMusicalSubdivision(pt, phase, beatDur);
+      const key = Math.round(snapped * 100);
+      const existing = anchorMap.get(key);
+      if (!existing || pe > existing.e) {
+        anchorMap.set(key, { t: snapped, e: pe });
+      }
     }
 
-    // Fill musical pulse points wherever MP3 lacks sharp percussive transients (e.g. orchestral strings in Hungarian Dance or Winter Solstice chime bars)
-    const fillStep = beatDur * (effectiveDiff === 'CHILL' ? 2 : effectiveDiff === 'NORMAL' ? 1.5 : 1);
-    let cursor = Math.max(1.05, phase + beatDur * 2);
+    // Musical beat-grid pulses: Chill rides half-bar / 2-beat groove; Normal rides steady beats; Hard+ unlocks full beat & off-beat sync
+    const fillStep =
+      effectiveDiff === 'CHILL'
+        ? beatDur * 2
+        : effectiveDiff === 'NORMAL'
+        ? beatDur
+        : effectiveDiff === 'HARD'
+        ? beatDur
+        : beatDur * 0.5;
+
+    let cursor = phase + beatDur * 2;
     while (cursor < dur - 1.35) {
-      const hasNearby = anchors.some((a) => Math.abs(a.t - cursor) < fillStep * 0.55);
-      if (!hasNearby) {
-        const bIdx = Math.min(blueprint.energyCurve.length - 1, Math.floor(cursor / 5));
-        const localE = blueprint.energyCurve[bIdx] ?? 0.5;
-        anchors.push({ t: Number(cursor.toFixed(2)), e: Number((localE * 0.75).toFixed(2)) });
+      if (cursor >= 1.15) {
+        const snappedC = Number(cursor.toFixed(3));
+        const hasNearby = Array.from(anchorMap.values()).some(
+          (a) => Math.abs(a.t - snappedC) < fillStep * 0.42,
+        );
+        if (!hasNearby) {
+          const bIdx = Math.min(blueprint.energyCurve.length - 1, Math.floor(snappedC / 5));
+          const localE = blueprint.energyCurve[bIdx] ?? 0.55;
+          // Only fill steady beats where music is audible cleanly (skip near-silent fades)
+          if (localE >= 0.14) {
+            anchorMap.set(Math.round(snappedC * 100), {
+              t: snappedC,
+              e: Number((localE * 0.8).toFixed(2)),
+            });
+          }
+        }
       }
       cursor += fillStep;
     }
-    anchors.sort((a, b) => a.t - b.t);
 
-    // Step B: Curate anchors per difficulty tier & local section energy
+    const anchors = Array.from(anchorMap.values()).sort((a, b) => a.t - b.t);
+
+    // Step B: Curate anchors strictly adhering to musical BPM spacing & Tutorial opening breathers
     const selected: { t: number; e: number }[] = [];
     let lastSelectedT = -10;
+    const isTutorial = song.id === 'moments_passing' && effectiveDiff === 'CHILL';
 
     for (let i = 0; i < anchors.length; i++) {
       const a = anchors[i];
-      if (a.t < 1.1 || a.t > dur - 1.3) continue;
+      if (a.t < (isTutorial ? 1.65 : 1.15) || a.t > dur - 1.35) continue;
       const bIdx = Math.min(blueprint.energyCurve.length - 1, Math.floor(a.t / 5));
       const energy = blueprint.energyCurve[bIdx] ?? 0.6;
       const prog = a.t / Math.max(1, dur);
       const sec = getSectionAtProgress(song, prog);
 
-      // Adaptive spacing scales musically with energy & difficulty
-      const secSpacingScale = sec === 'DROP' ? 0.85 : sec === 'BUILD-UP' ? 0.94 : 1.08;
+      // Quantize target spacing neatly onto integer multiples of half-beat / beat
+      const secSpacingScale =
+        isTutorial && selected.length < 6
+          ? 1.35
+          : sec === 'DROP'
+          ? 0.86
+          : sec === 'BUILD-UP'
+          ? 0.94
+          : 1.05;
       const desiredGap = Math.max(minGap, targetGap * secSpacingScale);
 
-      if (a.t - lastSelectedT < desiredGap * 0.82) continue;
+      if (a.t - lastSelectedT < desiredGap * 0.86) continue;
 
-      // In Chill/Normal, skip weak unaccented peaks if another stronger peak sits just ahead
-      if ((effectiveDiff === 'CHILL' || effectiveDiff === 'NORMAL') && a.e < 0.25 && i + 1 < anchors.length) {
+      // Prefer stronger downbeat peaks when two peaks sit closely together
+      if ((effectiveDiff === 'CHILL' || effectiveDiff === 'NORMAL') && a.e < 0.3 && i + 1 < anchors.length) {
         const nextStrong = anchors[i + 1];
-        if (nextStrong.t - a.t < 0.35 && nextStrong.e > a.e * 1.35) continue;
+        if (nextStrong.t - a.t < beatDur * 0.65 && nextStrong.e > a.e * 1.28) continue;
       }
 
-      // If last note was a long hold or burst, guarantee comfortable breathing space after hold ends
       selected.push({ t: a.t, e: Math.max(a.e, energy) });
       lastSelectedT = a.t;
     }
 
-    // Step C: Build final BeatmapNotes with musical choreography & guaranteed hold room
+    // Step C: Build final BeatmapNotes with musical choreography & clean post-hold recovery
     const notes: BeatmapNote[] = [];
     let prevSection: SongSection = 'INTRO';
 
@@ -529,11 +593,11 @@ export function buildSongBeatmap(
       notes.push({
         index: i,
         hitTime: cur.t,
-        stepSec: Number(Math.max(0.2, Math.min(2.6, gap)).toFixed(3)),
+        stepSec: Number(Math.max(0.22, Math.min(2.6, gap)).toFixed(3)),
         modeId: picked.modeId,
         section,
         energy: cur.e,
-        holdDurationSec: picked.holdDurationSec,
+        holdDurationSec: picked.holdDurationSec ? Number(picked.holdDurationSec) : undefined,
         burstCount: picked.burstCount,
       });
       prevSection = section;
@@ -545,7 +609,7 @@ export function buildSongBeatmap(
   // Fallback Grid
   const beatDur = 60 / Math.max(65, song.bpm);
   const notes: BeatmapNote[] = [];
-  let t = 1.35;
+  let t = 1.4;
   let idx = 0;
   while (t < song.durationSec - 1.4) {
     const prog = t / Math.max(1, song.durationSec);
