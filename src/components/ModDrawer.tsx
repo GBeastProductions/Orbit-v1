@@ -1,29 +1,40 @@
 import React from 'react';
-import { Lock, X } from 'lucide-react';
+import { Lock, ShoppingBag, X } from 'lucide-react';
 import { MOD_CATALOG } from '../data/catalog';
 import { computeTotalMultiplier } from '../engine/beatmap';
-import { DifficultyId, ModCode } from '../types/game';
+import { DifficultyId, ModCategory, ModCode } from '../types/game';
+import { OrbIcon } from './OrbIcon';
 
 interface ModDrawerProps {
   open: boolean;
   equippedMods: ModCode[];
+  purchasedMods: ModCode[];
   totalHits: number;
   devUnlocked: boolean;
   activeDifficulty: DifficultyId;
   onToggleMod: (code: ModCode) => void;
   onClearMods: () => void;
+  onOpenShop: () => void;
   onClose: () => void;
 }
+
+const GROUPS: { id: ModCategory; label: string; accent: string }[] = [
+  { id: 'reduction', label: 'Difficulty Reduction', accent: '#34d399' },
+  { id: 'increase', label: 'Difficulty Increase', accent: '#f43f5e' },
+  { id: 'special', label: 'Special Arcade', accent: '#a855f7' },
+];
 
 export const ModDrawer: React.FC<ModDrawerProps> = React.memo(
   ({
     open,
     equippedMods,
+    purchasedMods,
     totalHits,
     devUnlocked,
     activeDifficulty,
     onToggleMod,
     onClearMods,
+    onOpenShop,
     onClose,
   }) => {
     const baseWithMods = computeTotalMultiplier(activeDifficulty, equippedMods, 0);
@@ -34,7 +45,7 @@ export const ModDrawer: React.FC<ModDrawerProps> = React.memo(
         aria-modal="true"
         aria-labelledby="modDrawerTitle"
         aria-hidden={!open}
-        className={`fixed bottom-0 left-1/2 z-50 flex max-h-[80dvh] w-[min(96vw,780px)] flex-col border-t-2 border-[var(--accent-bright)] bg-[#0b0e16]/98 shadow-2xl transition-transform duration-200 ease-out ${
+        className={`fixed bottom-0 left-1/2 z-50 flex max-h-[82dvh] w-[min(96vw,920px)] flex-col border-t-2 border-[var(--accent-bright)] bg-[#0b0e16]/98 shadow-2xl transition-transform duration-200 ease-out ${
           open
             ? '-translate-x-1/2 translate-y-0'
             : '-translate-x-1/2 translate-y-[104%] pointer-events-none'
@@ -42,7 +53,7 @@ export const ModDrawer: React.FC<ModDrawerProps> = React.memo(
       >
         {open && (
           <>
-            <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-[#121624] px-6 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#121624] px-6 py-4">
               <div className="min-w-0">
                 <h3
                   id="modDrawerTitle"
@@ -51,10 +62,18 @@ export const ModDrawer: React.FC<ModDrawerProps> = React.memo(
                   Mod Setup · モッド設定
                 </h3>
                 <p className="mt-0.5 text-xs text-[#a1abbe] tabular-nums">
-                  {equippedMods.length}/3 Active · {baseWithMods.toFixed(2)}x Total Multiplier
+                  {equippedMods.length}/3 Active · {baseWithMods.toFixed(2)}x Score Multiplier
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={onOpenShop}
+                  className="tactile-btn flex items-center gap-1.5 border border-[#fbbf24]/40 bg-[#1c1608] px-3 py-1.5 text-xs font-bold text-[#fbbf24] hover:border-[#fbbf24] cursor-pointer whitespace-nowrap"
+                >
+                  <ShoppingBag className="h-3.5 w-3.5" />
+                  <span>Shop Mods</span>
+                </button>
                 <button
                   type="button"
                   onClick={onClearMods}
@@ -73,58 +92,90 @@ export const ModDrawer: React.FC<ModDrawerProps> = React.memo(
               </div>
             </div>
 
-            <div className="orbit-scroll grid grid-cols-1 gap-2.5 overflow-y-auto p-5 sm:grid-cols-2">
-              {MOD_CATALOG.map((mod) => {
-                const active = equippedMods.includes(mod.code);
-                const locked = !devUnlocked && totalHits < mod.unlockHits;
-                const fullAndNotActive = !active && equippedMods.length >= 3;
-
+            <div className="orbit-scroll grid grid-cols-1 gap-4 overflow-y-auto p-5 md:grid-cols-3">
+              {GROUPS.map((group) => {
+                const items = MOD_CATALOG.filter((m) => m.category === group.id);
                 return (
-                  <button
-                    key={mod.id}
-                    type="button"
-                    disabled={locked || fullAndNotActive}
-                    onClick={() => onToggleMod(mod.code)}
-                    className={`tactile-btn flex items-start justify-between gap-3 border p-3.5 text-left cursor-pointer disabled:cursor-not-allowed ${
-                      active
-                        ? 'border-[var(--accent-bright)] bg-[var(--accent-dim)]'
-                        : locked
-                        ? 'border-white/8 bg-[#0b0e17] opacity-75'
-                        : fullAndNotActive
-                        ? 'border-white/8 bg-[#0d111b] opacity-55'
-                        : 'border-white/10 bg-[#101420] hover:border-white/25'
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-extrabold text-[var(--accent-bright)]">
-                          {mod.code}
-                        </span>
-                        <span className="font-display text-sm font-bold text-white truncate">
-                          {mod.name}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs leading-relaxed text-[#b6bfd1]">
-                        {mod.desc}
-                      </p>
+                  <div key={group.id} className="space-y-2">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                      <span
+                        className="text-xs font-extrabold uppercase tracking-wider"
+                        style={{ color: group.accent }}
+                      >
+                        {group.label}
+                      </span>
+                      <span className="text-[10px] font-semibold text-[#68738a] tabular-nums">
+                        {items.length}
+                      </span>
                     </div>
-                    <div className="shrink-0 text-right tabular-nums">
-                      {locked ? (
-                        <span className="flex items-center gap-1 text-[11px] font-bold text-[#fbbf24] whitespace-nowrap">
-                          <Lock className="h-3 w-3" />
-                          <span>{mod.unlockHits} Hits</span>
-                        </span>
-                      ) : (
-                        <span
-                          className={`text-xs font-extrabold whitespace-nowrap ${
-                            mod.mult >= 1 ? 'text-[#22d3ee]' : 'text-[#fbbf24]'
-                          }`}
-                        >
-                          {mod.mult.toFixed(2)}x
-                        </span>
-                      )}
+
+                    <div className="space-y-2">
+                      {items.map((mod) => {
+                        const active = equippedMods.includes(mod.code);
+                        const needsHits = !devUnlocked && totalHits < mod.unlockHits;
+                        const needsShop =
+                          !devUnlocked && mod.orbCost > 0 && !purchasedMods.includes(mod.code);
+                        const locked = needsHits || needsShop;
+                        const fullAndNotActive = !active && equippedMods.length >= 3;
+
+                        return (
+                          <button
+                            key={mod.id}
+                            type="button"
+                            disabled={locked || fullAndNotActive}
+                            onClick={() => onToggleMod(mod.code)}
+                            className={`tactile-btn flex w-full items-start justify-between gap-2.5 border p-3 text-left cursor-pointer disabled:cursor-not-allowed ${
+                              active
+                                ? 'border-[var(--accent-bright)] bg-[var(--accent-dim)]'
+                                : locked
+                                ? 'border-white/8 bg-[#0b0e17] opacity-70'
+                                : fullAndNotActive
+                                ? 'border-white/8 bg-[#0d111b] opacity-50'
+                                : 'border-white/10 bg-[#101420] hover:border-white/25'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="font-mono text-xs font-extrabold"
+                                  style={{ color: active ? '#ffffff' : group.accent }}
+                                >
+                                  {mod.code}
+                                </span>
+                                <span className="font-display text-sm font-bold text-white truncate">
+                                  {mod.name}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-[11px] leading-relaxed text-[#b6bfd1]">
+                                {mod.desc}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right tabular-nums">
+                              {needsShop ? (
+                                <span className="flex items-center gap-1 text-[11px] font-bold text-[#fbbf24] whitespace-nowrap">
+                                  <OrbIcon className="h-3.5 w-3.5" />
+                                  <span>{mod.orbCost}</span>
+                                </span>
+                              ) : needsHits ? (
+                                <span className="flex items-center gap-1 text-[11px] font-bold text-[#fbbf24] whitespace-nowrap">
+                                  <Lock className="h-3 w-3" />
+                                  <span>{mod.unlockHits} Hits</span>
+                                </span>
+                              ) : (
+                                <span
+                                  className={`text-xs font-extrabold whitespace-nowrap ${
+                                    mod.mult >= 1 ? 'text-[#22d3ee]' : 'text-[#fbbf24]'
+                                  }`}
+                                >
+                                  {mod.mult.toFixed(2)}x
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

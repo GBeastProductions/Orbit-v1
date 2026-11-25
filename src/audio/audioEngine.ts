@@ -13,6 +13,8 @@ export interface DecodedCustomAudio {
 
 class OrbitAudioEngine {
   private ctx: AudioContext | null = null;
+  private lowWarmthFilter: BiquadFilterNode | null = null;
+  private airPresenceFilter: BiquadFilterNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
@@ -27,6 +29,11 @@ class OrbitAudioEngine {
   private activeSongId: string | null = null;
   private playSessionId = 0;
 
+  // Hold-arc sustain shimmer nodes
+  private holdOsc: OscillatorNode | null = null;
+  private holdSubOsc: OscillatorNode | null = null;
+  private holdGain: GainNode | null = null;
+
   private playing = false;
   private startedAtCtxTime = 0;
   private startOffsetSec = 0;
@@ -39,15 +46,25 @@ class OrbitAudioEngine {
           (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         if (!Ctx) return null;
         this.ctx = new Ctx();
+        const now = this.ctx.currentTime;
 
-        // Transparent gentle limiter keeps music crisp and un-squashed while preventing digital clipping
+        // Crisp Tokyo cabinet master bus: subtle warmth shelf + hi-fi air clarity + transparent limiter
+        this.lowWarmthFilter = this.ctx.createBiquadFilter();
+        this.lowWarmthFilter.type = 'lowshelf';
+        this.lowWarmthFilter.frequency.setValueAtTime(115, now);
+        this.lowWarmthFilter.gain.setValueAtTime(1.4, now);
+
+        this.airPresenceFilter = this.ctx.createBiquadFilter();
+        this.airPresenceFilter.type = 'highshelf';
+        this.airPresenceFilter.frequency.setValueAtTime(6800, now);
+        this.airPresenceFilter.gain.setValueAtTime(1.6, now);
+
         this.compressor = this.ctx.createDynamicsCompressor();
-        this.compressor.threshold.setValueAtTime(-4, this.ctx.currentTime);
-        this.compressor.knee.setValueAtTime(12, this.ctx.currentTime);
-        this.compressor.ratio.setValueAtTime(2.5, this.ctx.currentTime);
-        this.compressor.attack.setValueAtTime(0.002, this.ctx.currentTime);
-        this.compressor.release.setValueAtTime(0.12, this.ctx.currentTime);
-        this.compressor.connect(this.ctx.destination);
+        this.compressor.threshold.setValueAtTime(-3, now);
+        this.compressor.knee.setValueAtTime(14, now);
+        this.compressor.ratio.setValueAtTime(2.2, now);
+        this.compressor.attack.setValueAtTime(0.002, now);
+        this.compressor.release.setValueAtTime(0.12, now);
 
         this.musicGain = this.ctx.createGain();
         this.sfxGain = this.ctx.createGain();
@@ -56,9 +73,12 @@ class OrbitAudioEngine {
         this.analyser.smoothingTimeConstant = 0.78;
         this.freqBins = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount));
 
-        this.musicGain.connect(this.analyser);
+        this.musicGain.connect(this.lowWarmthFilter);
+        this.lowWarmthFilter.connect(this.airPresenceFilter);
+        this.airPresenceFilter.connect(this.analyser);
         this.analyser.connect(this.compressor);
         this.sfxGain.connect(this.compressor);
+        this.compressor.connect(this.ctx.destination);
       } catch {
         return null;
       }
@@ -221,6 +241,7 @@ class OrbitAudioEngine {
   }
 
   stop(): void {
+    this.stopHoldShimmer();
     this.playSessionId += 1;
     this.activeSongId = null;
     if (this.activeSource) {
@@ -268,7 +289,7 @@ class OrbitAudioEngine {
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = loop;
-    // Strictly lock playbackRate to 1.0x — zero pitch/speed distortion across all difficulties
+    // Strictly lock playbackRate to 1.0x — crisp zero-distortion audio across all difficulties
     src.playbackRate.setValueAtTime(1.0, ctx.currentTime);
 
     const srcGain = ctx.createGain();
@@ -352,6 +373,96 @@ class OrbitAudioEngine {
     if (!ctx || !this.sfxGain) return null;
     if (ctx.state !== 'running') return null;
     return ctx;
+  }
+
+  startHoldShimmer(enabled: boolean, scaleNotes: number[], combo: number): void {
+    this.stopHoldShimmer();
+    if (!enabled) return;
+    const ctx = this.getReadySfxCtx(true);
+    if (!ctx || !this.sfxGain) return;
+    const now = ctx.currentTime;
+    const scale = scaleNotes.length > 0 ? scaleNotes : [60, 62, 64, 67, 69, 72];
+    const baseMidi = scale[combo % scale.length];
+    const f1 = midiToFreq(baseMidi);
+    const f2 = midiToFreq(baseMidi + 7);
+
+    const osc = ctx.createOscillator();
+    const sub = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    sub.type = 'triangle';
+    osc.frequency.setValueAtTime(f1, now);
+    sub.frequency.setValueAtTime(f2, now);
+
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.085, now + 0.04);
+
+    osc.connect(g);
+    sub.connect(g);
+    g.connect(this.sfxGain);
+    osc.start(now);
+    sub.start(now);
+
+    this.holdOsc = osc;
+    this.holdSubOsc = sub;
+    this.holdGain = g;
+  }
+
+  updateHoldShimmer(progressRatio: number): void {
+    if (!this.ctx || !this.holdOsc || !this.holdSubOsc) return;
+    const now = this.ctx.currentTime;
+    const lift = 1 + Math.max(0, Math.min(1, progressRatio)) * 0.045;
+    try {
+      this.holdOsc.detune.setTargetAtTime((lift - 1) * 600, now, 0.03);
+      this.holdSubOsc.detune.setTargetAtTime((lift - 1) * 900, now, 0.03);
+    } catch {
+      // Ignore
+    }
+  }
+
+  stopHoldShimmer(): void {
+    if (!this.ctx || !this.holdGain) {
+      this.holdOsc = null;
+      this.holdSubOsc = null;
+      this.holdGain = null;
+      return;
+    }
+    const now = this.ctx.currentTime;
+    const osc = this.holdOsc;
+    const sub = this.holdSubOsc;
+    const g = this.holdGain;
+    this.holdOsc = null;
+    this.holdSubOsc = null;
+    this.holdGain = null;
+    try {
+      g.gain.cancelScheduledValues(now);
+      g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
+      osc?.stop(now + 0.05);
+      sub?.stop(now + 0.05);
+    } catch {
+      // Ignore
+    }
+  }
+
+  playFeverTap(enabled: boolean, progressRatio: number): void {
+    if (!enabled) return;
+    const ctx = this.getReadySfxCtx(true);
+    if (!ctx || !this.sfxGain) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    const pitch = 420 + Math.min(1, progressRatio) * 520;
+    osc.frequency.setValueAtTime(pitch, now);
+    osc.frequency.exponentialRampToValueAtTime(pitch * 1.18, now + 0.05);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.14, now + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+    osc.connect(g);
+    g.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.065);
   }
 
   playHit(

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Coins, Shield } from 'lucide-react';
+import { Shield } from 'lucide-react';
 import { CHASSIS_THEMES, NEEDLE_TOLERANCE, WAVE_MODES } from '../data/catalog';
 import { signedAngleDiff, TAU } from '../engine/beatmap';
 import {
@@ -16,6 +16,7 @@ import {
   TutorialLesson,
   WaveModeId,
 } from '../types/game';
+import { OrbIcon } from './OrbIcon';
 
 export interface CanvasRenderState {
   phase: GamePhase;
@@ -46,6 +47,7 @@ export interface CanvasRenderState {
   songSection: SongSection;
   lessonSlowActive: boolean;
   activeLesson: TutorialLesson | null;
+  flashlightActive: boolean;
 }
 
 interface OrbitStageProps {
@@ -54,8 +56,10 @@ interface OrbitStageProps {
   themeId: ThemeId;
   bgFxMode: BgFxMode;
   allowPointerTap: boolean;
-  onTriggerTap: () => void;
+  onTriggerPress: () => void;
+  onTriggerRelease: () => void;
   score: number;
+  hp: number;
   streak: number;
   bestScore: number;
   accuracyPct: number;
@@ -65,6 +69,7 @@ interface OrbitStageProps {
   modeName: string;
   modeColor: string;
   shields: number;
+  noFailActive: boolean;
   isTutorialRun: boolean;
   tutorialLives: number;
   activeLesson: TutorialLesson | null;
@@ -90,8 +95,10 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
   themeId,
   bgFxMode,
   allowPointerTap,
-  onTriggerTap,
+  onTriggerPress,
+  onTriggerRelease,
   score,
+  hp,
   streak,
   bestScore,
   accuracyPct,
@@ -101,6 +108,7 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
   modeName,
   modeColor,
   shields,
+  noFailActive,
   isTutorialRun,
   tutorialLives,
   activeLesson,
@@ -185,6 +193,10 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
       if (st.phase === 'PLAYING') {
         for (let i = 0; i < st.targets.length; i++) {
           const t = st.targets[i];
+          if (t.isFeverSpinner || t.isHolding) {
+            isIlluminated = true;
+            break;
+          }
           if (Math.abs(signedAngleDiff(st.spinnerAngle, t.angle)) <= t.halfWidth + NEEDLE_TOLERANCE) {
             isIlluminated = true;
             break;
@@ -374,9 +386,124 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
         ctx.stroke();
       }
 
-      // Target Sectors
+      // Target Sectors (including Hold Arc Ribbons & Fever Spinners)
       for (let i = 0; i < st.targets.length; i++) {
         const t = st.targets[i];
+
+        // 1. FEVER_SPINNER special radial charge ring inside track
+        if (t.isFeverSpinner) {
+          const hits = t.feverHits || 0;
+          const maxH = Math.max(1, t.feverMaxHits || 8);
+          const pct = Math.min(1, hits / maxH);
+          const feverR = trackRadius;
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, feverR, 0, TAU);
+          ctx.strokeStyle = 'rgba(250, 204, 21, 0.16)';
+          ctx.lineWidth = trackWidth - 4;
+          ctx.stroke();
+
+          if (pct > 0.01) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, feverR, -Math.PI / 2, -Math.PI / 2 + TAU * pct);
+            ctx.strokeStyle = pct >= 1 ? '#ffffff' : '#facc15';
+            ctx.lineWidth = trackWidth - 4;
+            ctx.stroke();
+          }
+
+          ctx.fillStyle = '#fde047';
+          ctx.font = '900 12px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`MASH ${hits}/${maxH}`, cx, cy - innerRadius * 0.72);
+          ctx.restore();
+          continue;
+        }
+
+        // 2. HOLD_ARC ribbon tail + diamond release cap
+        if (t.isHold && t.holdSpanRad && t.holdEndAngle !== undefined) {
+          const dir = t.holdDir || st.direction;
+          const ccw = dir === -1;
+          const holdProg = t.isHolding && t.holdDurationSec
+            ? Math.max(0, Math.min(1, (t.holdElapsedSec || 0) / t.holdDurationSec))
+            : 0;
+
+          ctx.save();
+          ctx.globalAlpha *= Math.max(0.15, t.alpha);
+
+          // Full Hold Tail Ribbon Backdrop
+          ctx.beginPath();
+          ctx.arc(cx, cy, trackRadius, t.angle, t.holdEndAngle, ccw);
+          ctx.strokeStyle = t.isHolding ? 'rgba(56, 189, 248, 0.35)' : 'rgba(56, 189, 248, 0.24)';
+          ctx.lineWidth = trackWidth * 0.56;
+          ctx.stroke();
+
+          // Outer glowing rail lines of Hold Ribbon
+          ctx.beginPath();
+          ctx.arc(cx, cy, outerRadius - 4, t.angle, t.holdEndAngle, ccw);
+          ctx.strokeStyle = t.isHolding ? '#ffffff' : '#38bdf8';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, innerRadius + 4, t.angle, t.holdEndAngle, ccw);
+          ctx.strokeStyle = t.isHolding ? '#ffffff' : '#38bdf8';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          // Filled active sweep portion while holding
+          if (holdProg > 0.01) {
+            const sweptEnd = t.angle + dir * t.holdSpanRad * holdProg;
+            ctx.beginPath();
+            ctx.arc(cx, cy, trackRadius, t.angle, sweptEnd, ccw);
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = trackWidth * 0.62;
+            ctx.stroke();
+          }
+
+          // Release End Cap Diamond
+          const ex = cx + Math.cos(t.holdEndAngle) * trackRadius;
+          const ey = cy + Math.sin(t.holdEndAngle) * trackRadius;
+          ctx.save();
+          ctx.translate(ex, ey);
+          ctx.rotate(t.holdEndAngle + Math.PI / 4);
+          ctx.fillStyle = holdProg > 0.78 ? '#fde047' : '#ffffff';
+          ctx.strokeStyle = '#07080d';
+          ctx.lineWidth = 2;
+          ctx.fillRect(-6, -6, 12, 12);
+          ctx.strokeRect(-6, -6, 12, 12);
+          ctx.restore();
+
+          // Head Sector Cap (only prominently lit before hold starts)
+          if (!t.isHolding) {
+            const a0 = t.angle - t.halfWidth;
+            const a1 = t.angle + t.halfWidth;
+            const activeThis =
+              st.phase === 'PLAYING' &&
+              Math.abs(signedAngleDiff(st.spinnerAngle, t.angle)) <= t.halfWidth + NEEDLE_TOLERANCE;
+            ctx.beginPath();
+            ctx.arc(cx, cy, trackRadius, a0, a1);
+            ctx.strokeStyle = activeThis ? '#ffffff' : '#38bdf8';
+            ctx.lineWidth = trackWidth - 2;
+            ctx.stroke();
+
+            ctx.fillStyle = '#07080d';
+            ctx.font = '900 9px "JetBrains Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(
+              'HOLD',
+              cx + Math.cos(t.angle) * trackRadius,
+              cy + Math.sin(t.angle) * trackRadius,
+            );
+          }
+
+          ctx.restore();
+          continue;
+        }
+
+        // 3. Standard & Variant Target Sectors
         const a0 = t.angle - t.halfWidth;
         const a1 = t.angle + t.halfWidth;
         const activeThis =
@@ -390,7 +517,7 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
 
         ctx.beginPath();
         ctx.arc(cx, cy, trackRadius, a0, a1);
-        ctx.strokeStyle = activeThis ? '#ffffff' : baseColor;
+        ctx.strokeStyle = activeThis ? '#ffffff' : t.isMeteorEcho ? '#fb923c' : baseColor;
         ctx.lineWidth = trackWidth - 2;
         ctx.stroke();
 
@@ -408,13 +535,14 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        if (t.tapsLeft > 1 || t.seqNum > 0) {
+        if (t.tapsLeft > 1 || t.seqNum > 0 || t.isMeteorEcho) {
           ctx.fillStyle = '#07080d';
           ctx.font = '900 11px "JetBrains Mono", monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
+          const badge = t.seqNum > 0 ? String(t.seqNum) : t.isMeteorEcho ? '⚡' : `×${t.tapsLeft}`;
           ctx.fillText(
-            t.seqNum > 0 ? String(t.seqNum) : `×${t.tapsLeft}`,
+            badge,
             cx + Math.cos(t.angle) * trackRadius,
             cy + Math.sin(t.angle) * trackRadius,
           );
@@ -572,6 +700,25 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
       ctx.fillStyle = needleColor;
       ctx.fill();
 
+      // Flashlight (FL) Mod Vignette Beam following the needle pointer
+      if (st.flashlightActive && st.phase === 'PLAYING') {
+        const beamX = cx + cosA * trackRadius;
+        const beamY = cy + sinA * trackRadius;
+        const grad = ctx.createRadialGradient(
+          beamX,
+          beamY,
+          Math.max(36, maxR * 0.16),
+          beamX,
+          beamY,
+          Math.max(130, maxR * 0.56),
+        );
+        grad.addColorStop(0, 'rgba(7, 8, 13, 0)');
+        grad.addColorStop(0.65, 'rgba(7, 8, 13, 0.72)');
+        grad.addColorStop(1, 'rgba(7, 8, 13, 0.96)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, width, height);
+      }
+
       ctx.restore();
       rafId = requestAnimationFrame(drawFrame);
     };
@@ -584,12 +731,15 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
     };
   }, [bgFxMode, renderStateRef, themeId]);
 
+  const hpClamped = Math.max(0, Math.min(100, hp));
+  const hpColor = hpClamped > 55 ? '#34d399' : hpClamped > 25 ? '#fbbf24' : '#ef4444';
+
   return (
     <div className="relative z-10 flex flex-1 w-full flex-col overflow-hidden px-4 py-3 sm:px-7 sm:py-4">
       {/* Unobtrusive Corner HUD — Top Row */}
       <div className="pointer-events-none relative z-20 flex w-full items-start justify-between gap-4">
-        {/* Top-Left: Score + Accuracy + Multiplier */}
-        <div className="flex flex-col border-l-2 border-[var(--accent-bright)] pl-3">
+        {/* Top-Left: Score + HP Integrity Bar */}
+        <div className="flex flex-col">
           <span className="tabular-nums text-3xl sm:text-4xl font-black tracking-tight text-white leading-none">
             {score.toLocaleString()}
           </span>
@@ -600,6 +750,20 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
             <span aria-hidden="true">·</span>
             <span>Best {bestScore.toLocaleString()}</span>
           </div>
+          {/* Compact Integrity Bar */}
+          {!isTutorialRun && (
+            <div className="mt-2 flex items-center gap-2">
+              <div className="h-1.5 w-32 sm:w-40 overflow-hidden bg-white/10">
+                <div
+                  className="h-full transition-all duration-150"
+                  style={{ width: `${hpClamped}%`, backgroundColor: hpColor }}
+                />
+              </div>
+              <span className="tabular-nums text-[10px] font-bold text-[#b6bfd1]">
+                {noFailActive ? 'NF' : `${Math.round(hpClamped)}%`}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Top-Right: Tutorial Lives or Shields */}
@@ -647,7 +811,15 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
         onPointerDown={(e) => {
           if (!allowPointerTap) return;
           if (e.button !== 0 && e.pointerType === 'mouse') return;
-          onTriggerTap();
+          onTriggerPress();
+        }}
+        onPointerUp={() => {
+          if (!allowPointerTap) return;
+          onTriggerRelease();
+        }}
+        onPointerCancel={() => {
+          if (!allowPointerTap) return;
+          onTriggerRelease();
         }}
         className="relative flex-1 w-full cursor-pointer select-none min-h-0"
       >
@@ -665,7 +837,7 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
       {/* Unobtrusive Corner HUD — Bottom Row */}
       <div className="pointer-events-none relative z-20 flex w-full items-end justify-between gap-4">
         {/* Bottom-Left: Combo + Unbanked Orbs */}
-        <div className="flex items-baseline gap-4 border-l-2 border-[#22d3ee] pl-3">
+        <div className="flex items-baseline gap-4">
           <div>
             <span className="block text-[11px] font-semibold text-[#b6bfd1] whitespace-nowrap">
               {getComboLabel(streak)} ({streakMult.toFixed(2)}x)
@@ -675,7 +847,7 @@ export const OrbitStage: React.FC<OrbitStageProps> = ({
             </span>
           </div>
           <div className="flex items-center gap-1.5 text-xs font-bold text-[#fbbf24] tabular-nums whitespace-nowrap">
-            <Coins className="h-3.5 w-3.5" />
+            <OrbIcon className="h-4 w-4" />
             <span>+{unbankedOrbs} Orbs</span>
           </div>
         </div>

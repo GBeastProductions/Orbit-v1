@@ -2,7 +2,6 @@ import React, { useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   ArrowLeft,
-  Coins,
   ImagePlus,
   Lock,
   Play,
@@ -31,6 +30,7 @@ import {
   SongDefinition,
 } from '../types/game';
 import { DiscCartridge } from './DiscCartridge';
+import { OrbIcon } from './OrbIcon';
 
 interface SongSelectScreenProps {
   profile: PlayerProfile;
@@ -243,19 +243,18 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = React.memo(
               className="tactile-btn lazer-slant-sm flex items-center border border-[#fbbf24]/40 bg-[#1c1608] px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs font-bold text-[#fbbf24] hover:border-[#fbbf24] cursor-pointer whitespace-nowrap tabular-nums"
             >
               <span className="lazer-unslant-sm flex items-center gap-1.5">
-                <Coins className="h-3.5 w-3.5" />
+                <OrbIcon className="h-4 w-4" />
                 <span>{profile.orbs.toLocaleString()}</span>
               </span>
             </button>
           </div>
         </header>
 
-        {/* Main 2-Column Stage: Left Active Track Wedge + Right Category & Carousel */}
+        {/* Main 2-Column Stage */}
         <main className="relative z-20 mx-auto grid w-full max-w-[1380px] flex-1 grid-cols-1 gap-4 sm:gap-6 overflow-y-auto lg:overflow-hidden px-3 py-3 sm:px-8 lg:grid-cols-12 lg:py-5 orbit-scroll">
-          {/* LEFT WEDGE (5 cols): Active Song Details, Difficulty Selector, Record & Mod Strip */}
+          {/* LEFT WEDGE */}
           <section className="flex flex-col justify-between gap-4 lg:overflow-y-auto orbit-scroll pr-1 lg:col-span-5">
             <div className="space-y-3.5 sm:space-y-4">
-              {/* Featured Track Art Banner */}
               <div className="relative aspect-[16/8.5] w-full overflow-hidden border border-white/15 bg-[#0e111a] shadow-lg">
                 {activeArtSrc ? (
                   <img
@@ -311,7 +310,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = React.memo(
                 {selectedSong.desc}
               </p>
 
-              {/* Difficulty Tabs (Single-Line, Crisp Contrast) */}
+              {/* Difficulty Tabs */}
               <div>
                 <div className="mb-2 flex items-center justify-between text-xs text-[#a1abbe]">
                   <span className="font-semibold">Difficulty</span>
@@ -509,9 +508,8 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = React.memo(
             </div>
           </section>
 
-          {/* RIGHT CAROUSEL (7 cols): Category Tabs + Slanted Track List */}
+          {/* RIGHT CAROUSEL */}
           <section className="relative flex flex-col lg:overflow-hidden lg:col-span-7">
-            {/* Functional Category Filter Bar */}
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {SONG_CATEGORIES.map((cat) => {
                 const isActive = activeCategory === cat.id;
@@ -549,7 +547,6 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = React.memo(
               })}
             </div>
 
-            {/* Scrollable Slanted Track Carousel */}
             <div className="relative flex-1 overflow-hidden">
               <div className="orbit-scroll h-full space-y-2.5 overflow-y-auto px-2 pb-6">
                 {filteredSongs.map((song) => {
@@ -574,13 +571,12 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = React.memo(
                       onClick={() => onPreviewSong(song.id)}
                       className={`tactile-btn lazer-slant-sm group relative flex w-full items-center justify-between gap-4 overflow-hidden border px-4 py-2.5 text-left cursor-pointer ${
                         isSelected
-                          ? 'border-[var(--accent-bright)] border-l-4 border-l-[var(--accent-bright)] bg-[#171d2f] translate-x-1'
+                          ? 'border-[var(--accent-bright)] bg-[#171d2f] shadow-[0_0_24px_rgba(var(--bg-accent-rgb,255,59,130),0.22)] translate-x-1'
                           : isChristmasTrack
-                          ? 'border-white/12 border-l-[3px] border-l-[#38bdf8]/65 bg-[#0d121d] hover:border-[#38bdf8]/50'
+                          ? 'border-[#38bdf8]/35 bg-[#0d121d] hover:border-[#38bdf8]/75'
                           : 'border-white/10 bg-[#0d111b] hover:border-white/25 hover:bg-[#131826]'
                       }`}
                     >
-                      {/* osu!lazer Diagonal Artwork Strip Peek */}
                       {art && (
                         <div
                           aria-hidden="true"
@@ -661,7 +657,6 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = React.memo(
                   );
                 })}
               </div>
-              {/* Soft bottom scroll fade */}
               <div
                 aria-hidden="true"
                 className="pointer-events-none hidden lg:block absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[#07080d]/90 to-transparent"
@@ -670,7 +665,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = React.memo(
           </section>
         </main>
 
-        {/* Bottom Dock: Secondary Tools (Left) + Bold Slanted Launch Wing (Right) */}
+        {/* Bottom Dock */}
         <footer className="relative z-20 flex h-[64px] sm:h-[68px] shrink-0 items-center justify-between gap-2 sm:gap-4 border-t border-white/10 bg-[#080a11]/95 px-3 sm:px-8">
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
@@ -679,7 +674,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = React.memo(
               className="tactile-btn lazer-slant-sm border border-white/15 bg-[#121624] px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-bold text-white hover:border-[#fbbf24] cursor-pointer whitespace-nowrap"
             >
               <span className="lazer-unslant-sm flex items-center gap-1.5">
-                <Coins className="h-3.5 w-3.5 text-[#fbbf24]" />
+                <OrbIcon className="h-4 w-4" />
                 <span>Orb Shop</span>
               </span>
             </button>

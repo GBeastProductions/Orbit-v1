@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   BookOpen,
-  Coins,
   Disc3,
   ListMusic,
   Play,
@@ -10,9 +9,10 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { CHASSIS_THEMES } from '../data/catalog';
+import { BADGE_CATALOG, CHASSIS_THEMES, WAVE_MODES } from '../data/catalog';
 import { PlayerProfile, SongDefinition } from '../types/game';
 import { DiscCartridge } from './DiscCartridge';
+import { OrbIcon } from './OrbIcon';
 
 interface TitleScreenProps {
   profile: PlayerProfile;
@@ -87,45 +87,51 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
           ? 'Moments Passing Us · Calibration'
           : `${activeSong.title} · ${activeSong.artist}`,
         primary: true,
-        Icon: Play,
         offsetClass: 'ml-0',
         onClick: onPlayPrimary,
+        renderIcon: () => <Play className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 text-white" />,
       },
       {
         id: 'tracks',
         label: 'Track Select',
         sub: '13 Songs · Christmas & Arcade',
         primary: false,
-        Icon: ListMusic,
         offsetClass: 'sm:ml-4',
         onClick: onEnterSongSelect,
+        renderIcon: () => (
+          <ListMusic className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 text-[var(--accent-bright)]" />
+        ),
       },
       {
         id: 'shop',
         label: 'Orb Shop',
-        sub: `${profile.orbs.toLocaleString()} Orbs Available`,
+        sub: `${profile.orbs.toLocaleString()} Orbs · Mods, Themes & Tracks`,
         primary: false,
-        Icon: Coins,
         offsetClass: 'sm:ml-8',
         onClick: onOpenOrbVault,
+        renderIcon: () => <OrbIcon className="h-5 w-5 shrink-0" />,
+      },
+      {
+        id: 'index',
+        label: 'The Index',
+        sub: `${WAVE_MODES.length} Mechanics · ${profile.unlockedBadges.length}/${BADGE_CATALOG.length} Badges & Stats`,
+        primary: false,
+        offsetClass: 'sm:ml-12',
+        onClick: onOpenIndex,
+        renderIcon: () => (
+          <BookOpen className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 text-[#22d3ee]" />
+        ),
       },
       {
         id: 'settings',
         label: 'Settings',
-        sub: 'Audio · Keybinds · Display',
+        sub: 'Audio · Keybinds · Calibration',
         primary: false,
-        Icon: Settings,
-        offsetClass: 'sm:ml-12',
-        onClick: onOpenSettings,
-      },
-      {
-        id: 'guide',
-        label: 'Wave Guide',
-        sub: '15 Orbital Mechanics',
-        primary: false,
-        Icon: BookOpen,
         offsetClass: 'sm:ml-16',
-        onClick: onOpenIndex,
+        onClick: onOpenSettings,
+        renderIcon: () => (
+          <Settings className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 text-[var(--accent-bright)]" />
+        ),
       },
     ];
 
@@ -162,8 +168,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
               Peak Combo <strong className="ml-1 font-bold text-[#22d3ee]">{profile.bestStreak}x</strong>
             </span>
             <span aria-hidden="true" className="text-white/25">·</span>
-            <span>
-              Orbs <strong className="ml-1 font-bold text-[#fbbf24]">{profile.orbs.toLocaleString()}</strong>
+            <span className="inline-flex items-center gap-1.5">
+              <OrbIcon className="h-4 w-4" />
+              <strong className="font-bold text-[#fbbf24]">{profile.orbs.toLocaleString()}</strong>
             </span>
           </div>
 
@@ -251,7 +258,6 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
             className="flex w-full max-w-[460px] flex-col gap-2 sm:gap-3"
           >
             {menuItems.map((item) => {
-              const Icon = item.Icon;
               return (
                 <button
                   key={item.id}
@@ -263,16 +269,12 @@ export const TitleScreen: React.FC<TitleScreenProps> = React.memo(
                   } ${
                     item.primary
                       ? 'border-[var(--accent-bright)] bg-[var(--accent)] text-[var(--accent-on)] shadow-[0_10px_32px_rgba(var(--bg-accent-rgb,255,59,130),0.28)] hover:bg-[var(--accent-bright)]'
-                      : 'border-white/12 border-l-[3px] border-l-[var(--accent-bright)]/70 bg-[#101420]/92 text-white hover:border-[var(--accent-bright)] hover:bg-[#171d2e]'
+                      : 'border-white/14 bg-[#101420]/92 text-white hover:border-[var(--accent-bright)] hover:bg-[#171d2e]'
                   }`}
                 >
                   <div className="lazer-unslant flex w-full items-center justify-between gap-4 min-w-0">
                     <div className="flex items-center gap-3.5 min-w-0">
-                      <Icon
-                        className={`h-4 w-4 sm:h-5 sm:w-5 shrink-0 ${
-                          item.primary ? 'text-white' : 'text-[var(--accent-bright)]'
-                        }`}
-                      />
+                      {item.renderIcon()}
                       <div className="min-w-0">
                         <span className="font-display block truncate text-base sm:text-xl font-extrabold tracking-tight leading-tight">
                           {item.label}

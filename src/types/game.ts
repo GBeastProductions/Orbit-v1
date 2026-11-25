@@ -1,15 +1,43 @@
 export type DifficultyId = 'CHILL' | 'NORMAL' | 'HARD' | 'INSANE' | 'DEMON';
-export type ThemeId = 'tokyo_pink' | 'shibuya_cyan' | 'emerald' | 'amber' | 'crimson';
+export type ThemeId =
+  | 'tokyo_pink'
+  | 'shibuya_cyan'
+  | 'emerald'
+  | 'amber'
+  | 'crimson'
+  | 'shinjuku_violet'
+  | 'snowflake_frost'
+  | 'kyoto_jade';
+
 export type HitSfxMode = 'switch' | 'harmonic' | 'rimshot';
 export type BgFxMode = 'dynamic' | 'clean' | 'minimal';
-export type ScreenView = 'TITLE' | 'SONG_SELECT' | 'PLAYING';
-export type ModCode = 'DT' | 'HR' | 'OC' | 'OS' | 'HD' | 'SD' | 'SH' | 'EZ';
+export type ScreenView = 'TITLE' | 'SONG_SELECT' | 'PLAYING' | 'SETTINGS' | 'INDEX' | 'SHOP';
+
+export type ModCode =
+  | 'EZ'
+  | 'NF'
+  | 'SH'
+  | 'HR'
+  | 'DT'
+  | 'HD'
+  | 'SD'
+  | 'FL'
+  | 'OC'
+  | 'OS'
+  | 'MR'
+  | 'RX';
+
+export type ModCategory = 'reduction' | 'increase' | 'special';
 export type SongCategory = 'tutorial' | 'arcade' | 'electronic' | 'christmas' | 'custom';
 
 export type WaveModeId =
   | 'CW_GREEN'
   | 'CCW_RED'
+  | 'HOLD_ARC'
   | 'DOUBLE_TAP'
+  | 'BEAT_BURST'
+  | 'METEOR_SLASH'
+  | 'FEVER_SPINNER'
   | 'PURPLE_SURGE'
   | 'ONE_PASS'
   | 'SNIPER_MICRO'
@@ -27,7 +55,7 @@ export type SongSection = 'INTRO' | 'BUILD-UP' | 'DROP' | 'BREAKDOWN' | 'OUTRO';
 export type JudgmentTier = 'PERFECT' | 'GREAT' | 'GOOD' | 'MISS';
 export type LetterRank = 'SS' | 'S' | 'A' | 'B' | 'C' | 'D' | 'F';
 export type GamePhase = 'IDLE' | 'PLAYING' | 'PAUSED' | 'SUMMARY' | 'TUTORIAL_CINEMATIC';
-export type PauseTabId = 'main' | 'tracks' | 'ctrl' | 'audio' | 'disp' | 'index';
+export type PauseTabId = 'main' | 'ctrl' | 'audio' | 'disp';
 
 export interface ChassisTheme {
   id: ThemeId;
@@ -50,7 +78,8 @@ export interface DifficultyConfig {
   name: string;
   mult: number;
   orbCost: number;
-  subdivisionBeats: number;
+  minGapSec: number;
+  targetGapSec: number;
   baseSpeed: number;
   arcScale: number;
   desc: string;
@@ -101,17 +130,32 @@ export interface WaveModeInfo {
   id: WaveModeId;
   name: string;
   tag: string;
+  category: 'Core' | 'Rhythm & Hold' | 'Precision & Multi' | 'Hazard & Warp';
   color: string;
   desc: string;
+  howToHit: string;
+  timingTip: string;
+  tierPresence: string;
 }
 
 export interface ModDefinition {
   id: ModCode;
   code: ModCode;
   name: string;
+  category: ModCategory;
   mult: number;
   unlockHits: number;
+  orbCost: number;
   desc: string;
+}
+
+export interface TrophyBadge {
+  id: string;
+  title: string;
+  jpTitle: string;
+  desc: string;
+  tier: 'bronze' | 'silver' | 'gold' | 'prism';
+  orbReward: number;
 }
 
 export interface BeatmapNote {
@@ -120,6 +164,9 @@ export interface BeatmapNote {
   stepSec: number;
   modeId: WaveModeId;
   section: SongSection;
+  energy: number;
+  holdDurationSec?: number;
+  burstCount?: number;
 }
 
 export interface TargetSector {
@@ -132,6 +179,20 @@ export interface TargetSector {
   seqNum: number;
   alpha: number;
   enteredWindow: boolean;
+  // Phase 2 Hold Arc & Special Mechanic Fields
+  isHold?: boolean;
+  holdSpanRad?: number;
+  holdEndAngle?: number;
+  holdDir?: 1 | -1;
+  holdDurationSec?: number;
+  holdElapsedSec?: number;
+  isHolding?: boolean;
+  holdTickAccum?: number;
+  isFeverSpinner?: boolean;
+  feverHits?: number;
+  feverMaxHits?: number;
+  feverRemainingSec?: number;
+  isMeteorEcho?: boolean;
 }
 
 export interface HazardMine {
@@ -168,7 +229,7 @@ export interface TutorialLesson {
   minWaveIndex: number;
   title: string;
   instruction: string;
-  highlightType: 'sector' | 'reverse' | 'bullseye';
+  highlightType: 'sector' | 'reverse' | 'bullseye' | 'hold';
 }
 
 export interface SongRecord {
@@ -176,6 +237,12 @@ export interface SongRecord {
   bestRank: LetterRank;
   bestAccuracy: number;
   bestCombo: number;
+}
+
+export interface MechanicStat {
+  hits: number;
+  perfects: number;
+  misses: number;
 }
 
 export interface PlayerProfile {
@@ -196,8 +263,11 @@ export interface PlayerProfile {
   selectedSongId: string;
   selectedDifficulty: DifficultyId;
   equippedMods: ModCode[];
+  purchasedMods: ModCode[];
   unlockedDiffs: DifficultyId[];
   unlockedSongs: string[];
+  unlockedBadges: string[];
+  mechanicStats: Partial<Record<WaveModeId, MechanicStat>>;
   orbs: number;
   totalOrbsEarned: number;
   levelBgSettings: Record<string, LevelBackgroundSetting>;
@@ -243,8 +313,10 @@ export interface RunSummaryData {
   offsetSamples: number[];
   unbankedOrbs: number;
   rankBonusOrbs: number;
+  badgeBonusOrbs: number;
   cashedOutOrbs: number;
   cashOutApproved: boolean;
+  newlyEarnedBadges: TrophyBadge[];
   missReason?: string;
   missDegrees?: string;
   isNewBest: boolean;

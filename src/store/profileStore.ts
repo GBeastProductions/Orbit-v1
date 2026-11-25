@@ -1,5 +1,5 @@
-import { DIFFICULTIES, STORAGE_KEY } from '../data/catalog';
-import { DifficultyId, PlayerProfile, ThemeId } from '../types/game';
+import { CHASSIS_THEMES, DIFFICULTIES, STORAGE_KEY } from '../data/catalog';
+import { DifficultyId, ModCode, PlayerProfile, ThemeId } from '../types/game';
 
 export const INITIAL_PROFILE: PlayerProfile = {
   trigger1Code: 'Space',
@@ -19,6 +19,7 @@ export const INITIAL_PROFILE: PlayerProfile = {
   selectedSongId: 'moments_passing',
   selectedDifficulty: 'CHILL',
   equippedMods: [],
+  purchasedMods: [],
   unlockedDiffs: ['CHILL'],
   unlockedSongs: [
     'moments_passing',
@@ -29,6 +30,8 @@ export const INITIAL_PROFILE: PlayerProfile = {
     'little_two',
     'speechless',
   ],
+  unlockedBadges: [],
+  mechanicStats: {},
   orbs: 0,
   totalOrbsEarned: 0,
   levelBgSettings: {},
@@ -46,11 +49,13 @@ export const INITIAL_PROFILE: PlayerProfile = {
   lateMisses: 0,
 };
 
-const VALID_THEMES: ThemeId[] = ['tokyo_pink', 'shibuya_cyan', 'emerald', 'amber', 'crimson'];
+const VALID_THEMES = Object.keys(CHASSIS_THEMES) as ThemeId[];
+const VALID_MODS: ModCode[] = ['EZ', 'NF', 'SH', 'HR', 'DT', 'HD', 'SD', 'FL', 'OC', 'OS', 'MR', 'RX'];
 
 export function loadProfile(): PlayerProfile {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw =
+      localStorage.getItem(STORAGE_KEY) || localStorage.getItem('orbit_rhythm_v9');
     if (!raw) return { ...INITIAL_PROFILE };
     const parsed = JSON.parse(raw) as Partial<PlayerProfile>;
     const merged: PlayerProfile = {
@@ -62,7 +67,14 @@ export function loadProfile(): PlayerProfile {
       },
       songRecords: { ...(parsed.songRecords || {}) },
       levelBgSettings: { ...(parsed.levelBgSettings || {}) },
-      equippedMods: Array.isArray(parsed.equippedMods) ? parsed.equippedMods.slice(0, 3) : [],
+      mechanicStats: { ...(parsed.mechanicStats || {}) },
+      equippedMods: Array.isArray(parsed.equippedMods)
+        ? (parsed.equippedMods.filter((m) => VALID_MODS.includes(m)).slice(0, 3) as ModCode[])
+        : [],
+      purchasedMods: Array.isArray(parsed.purchasedMods)
+        ? (parsed.purchasedMods.filter((m) => VALID_MODS.includes(m)) as ModCode[])
+        : [],
+      unlockedBadges: Array.isArray(parsed.unlockedBadges) ? parsed.unlockedBadges : [],
       unlockedDiffs:
         Array.isArray(parsed.unlockedDiffs) && parsed.unlockedDiffs.length > 0
           ? (parsed.unlockedDiffs.filter((d) => d in DIFFICULTIES) as DifficultyId[])

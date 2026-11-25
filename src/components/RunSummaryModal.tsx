@@ -1,8 +1,9 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Coins, ListMusic, RotateCcw } from 'lucide-react';
+import { Award, ListMusic, RotateCcw } from 'lucide-react';
 import { computeNextMilestone } from '../engine/beatmap';
 import { RunSummaryData } from '../types/game';
+import { OrbIcon } from './OrbIcon';
 
 interface RunSummaryModalProps {
   summary: RunSummaryData | null;
@@ -61,7 +62,7 @@ export const RunSummaryModal: React.FC<RunSummaryModalProps> = ({
         initial={{ opacity: 0, scale: 0.95, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-2xl border border-white/15 bg-[#0b0e16] shadow-2xl"
+        className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto orbit-scroll border border-white/15 bg-[#0b0e16] shadow-2xl"
       >
         {/* Top Rank Header */}
         <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-[#121624] px-6 py-5">
@@ -162,14 +163,42 @@ export const RunSummaryModal: React.FC<RunSummaryModalProps> = ({
             </div>
           </div>
 
+          {/* Newly Unlocked Trophy Badges */}
+          {summary.newlyEarnedBadges.length > 0 && (
+            <div className="border border-[#fbbf24]/45 bg-[#1c1608]/80 p-3.5">
+              <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-[#fbbf24]">
+                <Award className="h-4 w-4" />
+                <span>Trophy Badge{summary.newlyEarnedBadges.length > 1 ? 's' : ''} Unlocked</span>
+              </div>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {summary.newlyEarnedBadges.map((b) => (
+                  <div
+                    key={b.id}
+                    className="flex items-center justify-between border border-white/10 bg-[#0d1018] px-3 py-2 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-bold text-white block truncate">{b.title}</span>
+                      <span className="text-[11px] text-[#a1abbe] block truncate">{b.desc}</span>
+                    </div>
+                    <span className="ml-2 font-black text-[#fbbf24] whitespace-nowrap tabular-nums">
+                      +{b.orbReward}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Orbs & Next Rank Forecast */}
           <div className="flex flex-col gap-2 border border-white/10 bg-[#101420] p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2 text-sm font-bold text-[#fbbf24] tabular-nums">
-                <Coins className="h-4 w-4" />
+                <OrbIcon className="h-4 w-4" />
                 <span>
                   {summary.cashOutApproved
                     ? `+${summary.cashedOutOrbs} Orbs Banked`
+                    : summary.badgeBonusOrbs > 0
+                    ? `+${summary.badgeBonusOrbs} Badge Orbs (${summary.unbankedOrbs} run Orbs need C-Rank+)`
                     : `${summary.unbankedOrbs} Orbs Unbanked (Needs C-Rank+)`}
                 </span>
               </div>
